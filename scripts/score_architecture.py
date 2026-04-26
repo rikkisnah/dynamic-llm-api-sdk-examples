@@ -9,9 +9,9 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +30,11 @@ def _read(path: Path) -> str:
 
 
 def _score_readability(root: Path) -> DimensionResult:
-    files = _python_files(root / "llm_examples") + _python_files(root / "tests") + _python_files(root / "scripts")
+    files = (
+        _python_files(root / "llm_examples")
+        + _python_files(root / "tests")
+        + _python_files(root / "scripts")
+    )
     max_lines = max((len(_read(path).splitlines()) for path in files), default=0)
     long_functions = 0
     deep_functions = 0
@@ -43,7 +47,10 @@ def _score_readability(root: Path) -> DimensionResult:
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 length = (
-                    max((getattr(child, "lineno", node.lineno) for child in ast.walk(node)), default=node.lineno)
+                    max(
+                        (getattr(child, "lineno", node.lineno) for child in ast.walk(node)),
+                        default=node.lineno,
+                    )
                     - node.lineno
                 )
                 if length > 100:
@@ -56,7 +63,10 @@ def _score_readability(root: Path) -> DimensionResult:
     penalties += min(deep_functions, 4)
     penalties += min(missing_docstrings, 4)
     score = max(0, 10 - penalties)
-    notes = f"max_lines={max_lines}, long_functions={long_functions}, deep_functions={deep_functions}, missing_docstrings={missing_docstrings}"
+    notes = (
+        f"max_lines={max_lines}, long_functions={long_functions}, "
+        f"deep_functions={deep_functions}, missing_docstrings={missing_docstrings}"
+    )
     return DimensionResult("Readability", score, notes)
 
 
@@ -79,7 +89,7 @@ def _max_nesting(node: ast.AST) -> int:
 def _score_modularity(root: Path) -> DimensionResult:
     package_init = root / "llm_examples" / "__init__.py"
     init_ok = package_init.exists() and all(
-        line.startswith(("from ", "__all__", "\"\"\"", "", "#"))
+        line.startswith(("from ", "__all__", '"""', "", "#"))
         for line in _read(package_init).splitlines()
     )
     importable = _package_importable(root)
@@ -137,7 +147,10 @@ def _score_scalability(root: Path) -> DimensionResult:
         score -= 3
     if not capabilities:
         score -= 3
-    notes = f"provider_modules={len(provider_modules)}, cli_dispatch={cli_dispatch}, capabilities={capabilities}"
+    notes = (
+        f"provider_modules={len(provider_modules)}, cli_dispatch={cli_dispatch}, "
+        f"capabilities={capabilities}"
+    )
     return DimensionResult("Scalability", max(0, score), notes)
 
 
@@ -152,7 +165,9 @@ def _score_test_quality(root: Path) -> DimensionResult:
     penalties += 0 if has_cov_gate else 4
     penalties += 0 if required_ok else 3
     penalties += 0 if parametrize_hits >= 3 else 3
-    notes = f"cov_gate={has_cov_gate}, required_ok={required_ok}, parametrize_hits={parametrize_hits}"
+    notes = (
+        f"cov_gate={has_cov_gate}, required_ok={required_ok}, parametrize_hits={parametrize_hits}"
+    )
     return DimensionResult("Test Quality", max(0, 10 - penalties), notes)
 
 
@@ -162,7 +177,6 @@ def _score_documentation(root: Path) -> DimensionResult:
         root / "docs" / "INSTALL.md",
         root / "docs" / "USAGE.md",
         root / "docs" / "HOW-IT-WORKS.md",
-        root / "docs" / "PLAN.md",
     ]
     docs_ok = all(path.exists() for path in required_docs)
     adr_count = len(list((root / "docs" / "adr").glob("*.md")))
@@ -201,7 +215,11 @@ def _score_build_and_packaging(root: Path) -> DimensionResult:
         score -= 2
     if not importable:
         score -= 1
-    notes = f"has_check={has_check}, has_test_rule={has_test_rule}, has_lint_imports={has_lint_imports}, has_mypy_strict={has_mypy_strict}, importable={importable}"
+    notes = (
+        f"has_check={has_check}, has_test_rule={has_test_rule}, "
+        f"has_lint_imports={has_lint_imports}, has_mypy_strict={has_mypy_strict}, "
+        f"importable={importable}"
+    )
     return DimensionResult("Build & Packaging", max(0, score), notes)
 
 
@@ -222,7 +240,9 @@ def _score_type_safety(root: Path) -> DimensionResult:
         score -= 3
     if dict_any_hits > 0:
         score -= 2
-    notes = f"domain_types={domain_types.exists()}, imports={imports}, dict_any_hits={dict_any_hits}"
+    notes = (
+        f"domain_types={domain_types.exists()}, imports={imports}, dict_any_hits={dict_any_hits}"
+    )
     return DimensionResult("Type Safety", max(0, score), notes)
 
 
@@ -253,8 +273,10 @@ def _score_agent_discoverability(root: Path) -> DimensionResult:
     readme = _read(root / "README.md") if (root / "README.md").exists() else ""
     commands_table = "| Command | CLI | UI |" in readme
     env_table = "| Provider | API key env | Base URL env |" in readme
-    plan = _read(root / "docs" / "PLAN.md") if (root / "docs" / "PLAN.md").exists() else ""
-    providers_mentioned = all(name in plan for name in ["OpenAI", "Claude", "Gemini", "DeepSeek", "Qwen", "Z.ai"])
+    plan = readme
+    providers_mentioned = all(
+        name in plan for name in ["OpenAI", "Claude", "Gemini", "DeepSeek", "Qwen", "Z.ai"]
+    )
     score = 10
     if not symlink_ok:
         score -= 4
@@ -264,7 +286,10 @@ def _score_agent_discoverability(root: Path) -> DimensionResult:
         score -= 2
     if not providers_mentioned:
         score -= 1
-    notes = f"symlink_ok={symlink_ok}, commands_table={commands_table}, env_table={env_table}, providers_mentioned={providers_mentioned}"
+    notes = (
+        f"symlink_ok={symlink_ok}, commands_table={commands_table}, env_table={env_table}, "
+        f"providers_mentioned={providers_mentioned}"
+    )
     return DimensionResult("Agent Discoverability", max(0, score), notes)
 
 
@@ -274,13 +299,18 @@ def _score_provider_symmetry(root: Path) -> DimensionResult:
     symmetry_ok = len(provider_files) >= 6 and len(example_files) >= 6
     tests_path = root / "tests" / "test_providers.py"
     tests_text = _read(tests_path) if tests_path.exists() else ""
-    has_param_rows = tests_text.count("provider_name") >= 1 and "@pytest.mark.parametrize" in tests_text
+    has_param_rows = (
+        tests_text.count("provider_name") >= 1 and "@pytest.mark.parametrize" in tests_text
+    )
     score = 10
     if not symmetry_ok:
         score -= 5
     if not has_param_rows:
         score -= 3
-    notes = f"provider_files={len(provider_files)}, example_files={len(example_files)}, has_param_rows={has_param_rows}"
+    notes = (
+        f"provider_files={len(provider_files)}, example_files={len(example_files)}, "
+        f"has_param_rows={has_param_rows}"
+    )
     return DimensionResult("Provider Symmetry", max(0, score), notes)
 
 
@@ -318,7 +348,9 @@ def _score_secret_hygiene(root: Path) -> DimensionResult:
     lock_exists = (root / "uv.lock").exists()
     source_text = "\n".join(_read(path) for path in _python_files(root / "llm_examples"))
     hardcoded_key = bool(re.search(r"sk-[A-Za-z0-9]{16,}", source_text))
-    conftest = _read(root / "tests" / "conftest.py") if (root / "tests" / "conftest.py").exists() else ""
+    conftest = (
+        _read(root / "tests" / "conftest.py") if (root / "tests" / "conftest.py").exists() else ""
+    )
     network_disabled = "create_connection" in conftest
     score = 10
     if not env_gitignored:
@@ -331,7 +363,10 @@ def _score_secret_hygiene(root: Path) -> DimensionResult:
         score -= 1
     if not network_disabled:
         score -= 1
-    notes = f"env_gitignored={env_gitignored}, all_keys={all_keys}, lock_exists={lock_exists}, hardcoded_key={hardcoded_key}, network_disabled={network_disabled}"
+    notes = (
+        f"env_gitignored={env_gitignored}, all_keys={all_keys}, lock_exists={lock_exists}, "
+        f"hardcoded_key={hardcoded_key}, network_disabled={network_disabled}"
+    )
     return DimensionResult("Secret Hygiene & Reproducibility", max(0, score), notes)
 
 
@@ -380,7 +415,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     results = score_project(args.root)
     payload = {
-        "results": [{"name": result.name, "score": result.score, "notes": result.notes} for result in results],
+        "results": [
+            {"name": result.name, "score": result.score, "notes": result.notes}
+            for result in results
+        ],
         "min_score": args.min_score,
     }
     if args.json:

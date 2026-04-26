@@ -28,7 +28,9 @@ def list_models(client: object) -> list[str]:
 
 
 def run_prompt(client: object, model: str, prompt: str) -> str:
-    response = client.models.generate_content(model=model, contents=prompt, config={"max_output_tokens": 64})
+    response = client.models.generate_content(
+        model=model, contents=prompt, config={"max_output_tokens": 64}
+    )
     text = getattr(response, "text", None)
     return text if isinstance(text, str) else ""
 

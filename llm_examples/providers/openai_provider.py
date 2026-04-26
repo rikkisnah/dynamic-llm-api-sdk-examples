@@ -7,17 +7,80 @@ from collections.abc import Iterable
 from typing import cast
 
 from llm_examples.config import get_provider_config
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, ModelInfo, ProviderName
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    LLMError,
+    ModelInfo,
+    ProviderName,
+    Usage,
+)
 from llm_examples.providers._common import (
     ProviderClientBase,
     attr,
     model_info_list,
     normalize_usage,
     text_from_openai_response,
+    text_from_openai_stream_event,
 )
 
 DEFAULT_MODEL = "gpt-4o-mini"
 FALLBACK_MODELS = ("gpt-4o-mini", "gpt-4.1-mini")
+RETRY_MIN_MAX_TOKENS = 2048
+RETRY_MAX_MAX_TOKENS = 4096
+
+
+def _uses_max_completion_tokens(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "max_tokens" in message and "max_completion_tokens" in message
+
+
+def _openai_is_token_limit_finish(finish_reason: object) -> bool:
+    value = finish_reason if isinstance(finish_reason, str) else str(finish_reason)
+    normalized = value.strip().lower()
+    return normalized in {"length", "max_tokens", "finishreason.max_tokens"}
+
+
+def _openai_retry_max_tokens(max_tokens: int) -> int:
+    doubled = max_tokens * 2
+    return min(RETRY_MAX_MAX_TOKENS, max(RETRY_MIN_MAX_TOKENS, doubled))
+
+
+def _openai_extract_chat_fields(response: object) -> tuple[str, object, Usage | None, str | None]:
+    choices = attr(response, "choices")
+    first_choice = choices[0] if isinstance(choices, list) and choices else None
+    finish_reason = attr(first_choice, "finish_reason") if first_choice is not None else None
+    text = text_from_openai_response(response)
+    usage = normalize_usage(attr(response, "usage"))
+    raw_id = cast(str | None, attr(response, "id"))
+    return text, finish_reason, usage, raw_id
+
+
+def _openai_is_empty_due_token_limit(*, text: str, finish_reason: object) -> bool:
+    if text.strip():
+        return False
+    return _openai_is_token_limit_finish(finish_reason)
+
+
+def _openai_raise_if_empty_due_token_limit(
+    *,
+    provider: ProviderName,
+    model: str,
+    text: str,
+    finish_reason: object,
+    max_tokens: int,
+) -> None:
+    if _openai_is_empty_due_token_limit(text=text, finish_reason=finish_reason):
+        raise LLMError(
+            provider=provider,
+            model=model,
+            kind="bad_request",
+            message=(
+                f"OpenAI returned empty assistant content due token limit for model '{model}' "
+                f"(max_tokens={max_tokens}). Increase max_tokens."
+            ),
+        )
 
 
 class OpenAIProvider(ProviderClientBase):
@@ -34,12 +97,15 @@ class OpenAIProvider(ProviderClientBase):
 
     def _sdk_client(self) -> object:
         if self._client is None:
-            from openai import OpenAI  # type: ignore[import-not-found]
+            from openai import OpenAI
 
-            kwargs: dict[str, object] = {"api_key": self._config.api_key}
             if self._config.base_url:
-                kwargs["base_url"] = self._config.base_url
-            self._client = OpenAI(**kwargs)
+                self._client = OpenAI(
+                    api_key=self._config.api_key,
+                    base_url=self._config.base_url,
+                )
+            else:
+                self._client = OpenAI(api_key=self._config.api_key)
         return self._client
 
     def _list_models_impl(self) -> list[ModelInfo]:
@@ -71,14 +137,47 @@ class OpenAIProvider(ProviderClientBase):
             messages.append({"role": "system", "content": req.system})
         messages.append({"role": "user", "content": req.prompt})
 
-        response = create_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=False)
+        def _create_chat(max_tokens: int) -> object:
+            try:
+                return create_fn(
+                    model=req.model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    stream=False,
+                )
+            except Exception as exc:
+                if not _uses_max_completion_tokens(exc):
+                    raise
+                return create_fn(
+                    model=req.model,
+                    messages=messages,
+                    max_completion_tokens=max_tokens,
+                    stream=False,
+                )
+
+        response = _create_chat(req.max_tokens)
+        text, finish_reason, usage, raw_id = _openai_extract_chat_fields(response)
+        tokens_used = req.max_tokens
+        if _openai_is_empty_due_token_limit(text=text, finish_reason=finish_reason):
+            retry_tokens = _openai_retry_max_tokens(req.max_tokens)
+            if retry_tokens > req.max_tokens:
+                response = _create_chat(retry_tokens)
+                text, finish_reason, usage, raw_id = _openai_extract_chat_fields(response)
+                tokens_used = retry_tokens
+        _openai_raise_if_empty_due_token_limit(
+            provider=req.provider,
+            model=req.model,
+            text=text,
+            finish_reason=finish_reason,
+            max_tokens=tokens_used,
+        )
         return ChatResponse(
             provider=req.provider,
             model=req.model,
-            text=text_from_openai_response(response),
+            text=text,
             latency_ms=0.0,
-            usage=normalize_usage(attr(response, "usage")),
-            raw_id=cast(str | None, attr(response, "id")),
+            usage=usage,
+            raw_id=raw_id,
             stream_simulated=False,
         )
 
@@ -95,15 +194,23 @@ class OpenAIProvider(ProviderClientBase):
         messages.append({"role": "user", "content": req.prompt})
 
         self.stream_is_simulated = False
-        stream_obj = create_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=True)
+        try:
+            stream_obj = create_fn(
+                model=req.model, messages=messages, max_tokens=req.max_tokens, stream=True
+            )
+        except Exception as exc:
+            if not _uses_max_completion_tokens(exc):
+                raise
+            stream_obj = create_fn(
+                model=req.model,
+                messages=messages,
+                max_completion_tokens=req.max_tokens,
+                stream=True,
+            )
         chunks: list[str] = []
         for event in stream_obj:
-            choices = attr(event, "choices")
-            if not isinstance(choices, list) or not choices:
-                continue
-            delta = attr(choices[0], "delta")
-            piece = attr(delta, "content") if delta is not None else None
-            if isinstance(piece, str) and piece:
+            piece = text_from_openai_stream_event(event)
+            if piece:
                 chunks.append(piece)
         return chunks
 

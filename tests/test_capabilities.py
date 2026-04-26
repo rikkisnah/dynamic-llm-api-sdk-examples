@@ -19,7 +19,9 @@ def test_parameter_names_unique_per_capability() -> None:
 def test_every_parameter_has_help() -> None:
     for capability in CAPABILITIES:
         for parameter in capability.params:
-            assert parameter.help.strip(), f"Missing help text for {capability.name}:{parameter.name}"
+            assert parameter.help.strip(), (
+                f"Missing help text for {capability.name}:{parameter.name}"
+            )
 
 
 def test_streaming_capability_has_stream_parameter() -> None:

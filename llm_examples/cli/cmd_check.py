@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from argparse import Namespace
 
-from llm_examples.services import check_connection
-
 from llm_examples.cli.output import print_json, print_lines
+from llm_examples.services import check_connection
 
 
 def handle_check(args: Namespace) -> int:

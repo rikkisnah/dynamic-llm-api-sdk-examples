@@ -7,13 +7,20 @@ from collections.abc import Iterable
 from typing import cast
 
 from llm_examples.config import get_provider_config
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, ModelInfo, ProviderName
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    ModelInfo,
+    ProviderName,
+)
 from llm_examples.providers._common import (
     ProviderClientBase,
     attr,
     model_info_list,
     normalize_usage,
     text_from_openai_response,
+    text_from_openai_stream_event,
 )
 
 DEFAULT_MODEL = "qwen-plus"
@@ -35,7 +42,7 @@ class QwenProvider(ProviderClientBase):
 
     def _sdk_client(self) -> object:
         if self._client is None:
-            from openai import OpenAI  # type: ignore[import-not-found]
+            from openai import OpenAI
 
             self._client = OpenAI(
                 api_key=self._config.api_key,
@@ -70,7 +77,9 @@ class QwenProvider(ProviderClientBase):
         if req.system:
             messages.append({"role": "system", "content": req.system})
         messages.append({"role": "user", "content": req.prompt})
-        response = call_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=False)
+        response = call_fn(
+            model=req.model, messages=messages, max_tokens=req.max_tokens, stream=False
+        )
         return ChatResponse(
             provider=req.provider,
             model=req.model,
@@ -95,12 +104,8 @@ class QwenProvider(ProviderClientBase):
         stream = call_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=True)
         pieces: list[str] = []
         for event in stream:
-            choices = attr(event, "choices")
-            if not isinstance(choices, list) or not choices:
-                continue
-            delta = attr(choices[0], "delta")
-            piece = attr(delta, "content") if delta is not None else None
-            if isinstance(piece, str) and piece:
+            piece = text_from_openai_stream_event(event)
+            if piece:
                 pieces.append(piece)
         if not pieces:
             return self._simulate_stream(req)

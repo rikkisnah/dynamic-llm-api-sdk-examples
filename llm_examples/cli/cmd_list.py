@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from argparse import Namespace
 
-from llm_examples.services import list_models
-
 from llm_examples.cli.output import print_json, print_lines
+from llm_examples.services import list_models
 
 
 def handle_list_models(args: Namespace) -> int:

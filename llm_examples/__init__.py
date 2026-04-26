@@ -15,13 +15,13 @@ from llm_examples.registry import PROVIDERS, get_client
 from llm_examples.services import check_connection, list_models, run_prompt, stream_prompt
 
 __all__ = [
+    "PROVIDERS",
     "ChatRequest",
     "ChatResponse",
     "CheckResult",
     "LLMError",
     "MissingCredential",
     "ModelInfo",
-    "PROVIDERS",
     "ProviderConfig",
     "ProviderName",
     "Usage",

@@ -22,7 +22,9 @@ def build_sdk_client(api_key: str, base_url: str | None) -> object | None:
 def list_models(api_key: str, base_url: str) -> list[str]:
     import httpx
 
-    with httpx.Client(base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}) as http:
+    with httpx.Client(
+        base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}
+    ) as http:
         try:
             response = http.get("/models")
             response.raise_for_status()
@@ -64,7 +66,9 @@ def run_prompt_http(api_key: str, base_url: str, model: str, prompt: str) -> str
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 64,
     }
-    with httpx.Client(base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}) as http:
+    with httpx.Client(
+        base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}
+    ) as http:
         response = http.post("/chat/completions", json=payload)
         response.raise_for_status()
         data = response.json()

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from argparse import Namespace
 
+from llm_examples.cli.output import print_json, print_lines
 from llm_examples.config import get_provider_config, provider_env_names
 from llm_examples.domain_types import MissingCredential
 from llm_examples.registry import PROVIDERS
-
-from llm_examples.cli.output import print_json, print_lines
 
 
 def handle_providers(args: Namespace) -> int:
@@ -26,6 +25,9 @@ def handle_providers(args: Namespace) -> int:
     if args.json:
         print_json({"ok": True, "providers": rows})
     else:
-        lines = [f"{row['provider']}: {'configured' if row['configured'] else 'missing key'}" for row in rows]
+        lines = [
+            f"{row['provider']}: {'configured' if row['configured'] else 'missing key'}"
+            for row in rows
+        ]
         print_lines(lines)
     return 0

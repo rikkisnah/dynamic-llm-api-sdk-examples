@@ -49,7 +49,10 @@ def main() -> int:
     if not api_key:
         print("Missing DEEPSEEK_API_KEY", file=sys.stderr)
         return 2
-    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip() or "https://api.deepseek.com"
+    base_url = (
+        os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
+        or "https://api.deepseek.com"
+    )
     client = build_client(api_key, base_url)
     models = list_models(client)
     model = models[0]

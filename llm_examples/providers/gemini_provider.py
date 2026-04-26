@@ -6,11 +6,45 @@ import time
 from collections.abc import Iterable
 
 from llm_examples.config import get_provider_config
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, ModelInfo, ProviderName
-from llm_examples.providers._common import ProviderClientBase, attr, model_info_list, normalize_usage
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    ModelInfo,
+    ProviderName,
+)
+from llm_examples.providers._common import (
+    ProviderClientBase,
+    attr,
+    model_info_list,
+    normalize_usage,
+    text_from_content,
+)
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-2.5-pro")
+
+
+def _extract_gemini_text(response: object) -> str:
+    text = attr(response, "text")
+    if isinstance(text, str) and text:
+        return text
+
+    candidates = attr(response, "candidates")
+    if not isinstance(candidates, list):
+        return text if isinstance(text, str) else ""
+
+    chunks: list[str] = []
+    for candidate in candidates:
+        content = attr(candidate, "content")
+        if content is None:
+            continue
+        piece = text_from_content(content)
+        if piece:
+            chunks.append(piece)
+    if chunks:
+        return "".join(chunks)
+    return text if isinstance(text, str) else ""
 
 
 class GeminiProvider(ProviderClientBase):
@@ -27,7 +61,7 @@ class GeminiProvider(ProviderClientBase):
 
     def _sdk_client(self) -> object:
         if self._client is None:
-            from google import genai  # type: ignore[import-not-found]
+            from google import genai
 
             self._client = genai.Client(api_key=self._config.api_key)
         return self._client
@@ -57,11 +91,10 @@ class GeminiProvider(ProviderClientBase):
         if req.system:
             config["system_instruction"] = req.system
         response = generate_fn(model=req.model, contents=req.prompt, config=config)
-        text = attr(response, "text")
         return ChatResponse(
             provider=req.provider,
             model=req.model,
-            text=text if isinstance(text, str) else "",
+            text=_extract_gemini_text(response),
             latency_ms=0.0,
             usage=normalize_usage(attr(response, "usage_metadata")),
             raw_id=None,
@@ -70,7 +103,9 @@ class GeminiProvider(ProviderClientBase):
 
     def _stream_impl(self, req: ChatRequest) -> Iterable[str]:
         models_obj = attr(self._sdk_client(), "models")
-        generate_stream_fn = attr(models_obj, "generate_content_stream") if models_obj is not None else None
+        generate_stream_fn = (
+            attr(models_obj, "generate_content_stream") if models_obj is not None else None
+        )
         if not callable(generate_stream_fn):
             return self._simulate_stream(req)
 
@@ -82,9 +117,9 @@ class GeminiProvider(ProviderClientBase):
         pieces: list[str] = []
         stream = generate_stream_fn(model=req.model, contents=req.prompt, config=config)
         for item in stream:
-            text = attr(item, "text")
-            if isinstance(text, str) and text:
-                pieces.append(text)
+            piece = _extract_gemini_text(item)
+            if piece:
+                pieces.append(piece)
         if not pieces:
             return self._simulate_stream(req)
         return pieces

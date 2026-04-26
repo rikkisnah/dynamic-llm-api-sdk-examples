@@ -7,8 +7,19 @@ from collections.abc import Iterable
 from typing import cast
 
 from llm_examples.config import get_provider_config
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, ModelInfo, ProviderName
-from llm_examples.providers._common import ProviderClientBase, attr, model_info_list, normalize_usage
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    ModelInfo,
+    ProviderName,
+)
+from llm_examples.providers._common import (
+    ProviderClientBase,
+    attr,
+    model_info_list,
+    normalize_usage,
+)
 
 DEFAULT_MODEL = "claude-haiku-4-5"
 FALLBACK_MODELS = ("claude-haiku-4-5", "claude-sonnet-4-5")
@@ -42,12 +53,15 @@ class ClaudeProvider(ProviderClientBase):
 
     def _sdk_client(self) -> object:
         if self._client is None:
-            from anthropic import Anthropic  # type: ignore[import-not-found]
+            from anthropic import Anthropic
 
-            kwargs: dict[str, object] = {"api_key": self._config.api_key}
             if self._config.base_url:
-                kwargs["base_url"] = self._config.base_url
-            self._client = Anthropic(**kwargs)
+                self._client = Anthropic(
+                    api_key=self._config.api_key,
+                    base_url=self._config.base_url,
+                )
+            else:
+                self._client = Anthropic(api_key=self._config.api_key)
         return self._client
 
     def _list_models_impl(self) -> list[ModelInfo]:
@@ -109,11 +123,7 @@ class ClaudeProvider(ProviderClientBase):
         chunks: list[str] = []
         with stream_ctx as stream:
             text_stream = attr(stream, "text_stream")
-            if isinstance(text_stream, list):
-                for piece in text_stream:
-                    if isinstance(piece, str) and piece:
-                        chunks.append(piece)
-            elif text_stream is not None:
+            if isinstance(text_stream, Iterable) and not isinstance(text_stream, (str, bytes)):
                 for piece in text_stream:
                     if isinstance(piece, str) and piece:
                         chunks.append(piece)

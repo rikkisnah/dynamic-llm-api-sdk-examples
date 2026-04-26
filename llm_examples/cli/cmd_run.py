@@ -6,10 +6,9 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from llm_examples.domain_types import LLMError
-from llm_examples.services import run_prompt, stream_prompt
-
 from llm_examples.cli.output import print_json, print_lines
+from llm_examples.domain_types import LLMError, ProviderName
+from llm_examples.services import run_prompt, stream_prompt
 
 
 def handle_run(args: Namespace) -> int:
@@ -76,7 +75,7 @@ def handle_run(args: Namespace) -> int:
     return 0
 
 
-def _resolve_prompt(provider: str, prompt: str | None, prompt_file: str | None) -> str:
+def _resolve_prompt(provider: ProviderName, prompt: str | None, prompt_file: str | None) -> str:
     if prompt and prompt_file:
         raise LLMError(
             provider=provider,

@@ -5,7 +5,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, ModelInfo, ProviderName
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    ModelInfo,
+    ProviderName,
+)
 
 
 class BaseClient(ABC):

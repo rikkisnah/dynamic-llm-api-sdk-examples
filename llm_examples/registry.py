@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from llm_examples.domain_types import ProviderName
 from llm_examples.llm_client import BaseClient

@@ -1,25 +1,17 @@
 # Install
 
-## Prerequisites
+For Codex/Claude prompt-based setup on Ubuntu/macOS, use root [INSTALL.md](../INSTALL.md).
 
-- Python 3.11+
-- `uv`
-
-## Setup
+## Quick Manual Setup
 
 ```bash
 cp .env.example .env
 make setup
+make check
+make providers
 ```
 
 Fill `.env` with provider keys you plan to use.
-
-## Smoke Check
-
-```bash
-make providers
-make check-conn P=openai
-```
 
 ## Run
 

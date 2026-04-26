@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import sys
+from importlib.metadata import PackageNotFoundError
 
 import pytest
 
@@ -52,7 +53,7 @@ def test_output_helpers(capsys) -> None:  # type: ignore[no-untyped-def]
     print_json({"ok": True})
     print_lines(["a", "b"])
     captured = capsys.readouterr()
-    assert "\"ok\": true" in captured.out
+    assert '"ok": true' in captured.out
     assert "a\nb\n" in captured.out
 
 
@@ -61,7 +62,7 @@ def test_emit_error_json_branch(capsys) -> None:  # type: ignore[no-untyped-def]
     code = emit_error(error, json_output=True)
     captured = capsys.readouterr()
     assert code == 4
-    assert "\"ok\": false" in captured.out
+    assert '"ok": false' in captured.out
 
 
 def test_dispatch_unknown_command_raises() -> None:
@@ -74,27 +75,88 @@ def test_parser_helpers_and_add_parameter_error() -> None:
     parser = argparse.ArgumentParser()
     _add_parameter(
         parser,
-        type("P", (), {"name": "name", "type": "str", "required": False, "default": "x", "help": "h"})(),
+        type(
+            "P", (), {"name": "name", "type": "str", "required": False, "default": "x", "help": "h"}
+        )(),
     )
     _add_parameter(
         parser,
-        type("P", (), {"name": "value", "type": "int", "required": False, "default": 1, "help": "h"})(),
+        type(
+            "P", (), {"name": "value", "type": "int", "required": False, "default": 1, "help": "h"}
+        )(),
     )
     _add_parameter(
         parser,
-        type("P", (), {"name": "flag", "type": "bool", "required": False, "default": False, "help": "h"})(),
+        type(
+            "P",
+            (),
+            {"name": "value_raw", "type": "int", "required": False, "default": None, "help": "h"},
+        )(),
     )
     _add_parameter(
         parser,
-        type("P", (), {"name": "provider", "type": "enum:provider", "required": False, "default": None, "help": "h"})(),
+        type(
+            "P",
+            (),
+            {"name": "flag", "type": "bool", "required": False, "default": False, "help": "h"},
+        )(),
+    )
+    _add_parameter(
+        parser,
+        type(
+            "P",
+            (),
+            {"name": "flag_raw", "type": "bool", "required": False, "default": None, "help": "h"},
+        )(),
+    )
+    _add_parameter(
+        parser,
+        type(
+            "P",
+            (),
+            {
+                "name": "provider",
+                "type": "enum:provider",
+                "required": False,
+                "default": None,
+                "help": "h",
+            },
+        )(),
     )
     assert capability_names()
     assert capabilities_by_name()["run"].name == "run"
     with pytest.raises(ValueError):
         _add_parameter(
             parser,
-            type("P", (), {"name": "x", "type": "bad", "required": False, "default": None, "help": "h"})(),
+            type(
+                "P",
+                (),
+                {"name": "x", "type": "bad", "required": False, "default": None, "help": "h"},
+            )(),
         )
+
+
+def test_config_fallback_loader_returns_false() -> None:
+    from llm_examples import config as config_module
+
+    assert config_module._fallback_load_dotenv() is False
+
+
+def test_get_app_version_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    from llm_examples import config as config_module
+
+    monkeypatch.setattr(config_module, "_package_version", lambda _name: "9.9.9")
+    assert config_module.get_app_version() == "9.9.9"
+
+
+def test_get_app_version_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    from llm_examples import config as config_module
+
+    def raise_missing(_name: str) -> str:
+        raise PackageNotFoundError("missing")
+
+    monkeypatch.setattr(config_module, "_package_version", raise_missing)
+    assert config_module.get_app_version() == "0.0.0"
 
 
 def test_service_reraises_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,8 +218,8 @@ def test_cmd_check_and_list_json(monkeypatch: pytest.MonkeyPatch, capsys) -> Non
     assert handle_check(argparse.Namespace(provider="openai", json=True)) == 0
     assert handle_list_models(argparse.Namespace(provider="openai", json=True)) == 0
     captured = capsys.readouterr()
-    assert "\"latency_ms\": 1.2" in captured.out
-    assert "\"description\": \"d\"" in captured.out
+    assert '"latency_ms": 1.2' in captured.out
+    assert '"description": "d"' in captured.out
 
 
 def test_cmd_providers_non_json_with_missing(monkeypatch: pytest.MonkeyPatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -166,7 +228,9 @@ def test_cmd_providers_non_json_with_missing(monkeypatch: pytest.MonkeyPatch, ca
             raise MissingCredential(provider="openai", env_var="OPENAI_API_KEY")
         return object()
 
-    monkeypatch.setattr("llm_examples.cli.cmd_providers.get_provider_config", fake_get_provider_config)
+    monkeypatch.setattr(
+        "llm_examples.cli.cmd_providers.get_provider_config", fake_get_provider_config
+    )
     assert handle_providers(argparse.Namespace(json=False)) == 0
     captured = capsys.readouterr()
     assert "openai: missing key" in captured.out
@@ -204,7 +268,9 @@ def test_cmd_run_non_json_paths(monkeypatch: pytest.MonkeyPatch, capsys) -> None
 
     monkeypatch.setattr(
         "llm_examples.cli.cmd_run.stream_prompt",
-        lambda **_: type("R", (), {"provider": "openai", "model": "m", "chunks": ["a", "b"], "simulated": True})(),
+        lambda **_: type(
+            "R", (), {"provider": "openai", "model": "m", "chunks": ["a", "b"], "simulated": True}
+        )(),
     )
     assert (
         handle_run(

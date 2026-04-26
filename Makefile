@@ -5,7 +5,10 @@ PROMPT ?= Hello from dynamic-llm-api-sdk-examples
 PROMPT_FILE ?=
 SYSTEM ?=
 MAX_TOKENS ?= 512
-HELLO_PROMPT ?= Hello world
+HELLO_PROMPT ?= Reply with exactly: Hello world
+HELLO_MAX_TOKENS ?= 64
+HELLO_MAX_TOKENS_ZAI ?= 512
+OUT ?= txt
 V ?= openai
 PORT ?= 8501
 ARGS ?=
@@ -29,12 +32,17 @@ help:
 	"make list P=openai                  # list models for provider" \
 	"make list-json P=openai             # list models as JSON" \
 	"make run-cli P=openai PROMPT='hello' # run one-shot prompt" \
+	"make run-cli P=openai PROMPT='hello' OUT=txt|json # choose TXT or JSON output" \
 	"make run-file P=openai PROMPT_FILE=prompt.txt # run prompt from file" \
 	"make run-stream P=openai PROMPT='hello' # run with streaming" \
+	"make run-stream P=openai PROMPT='hello' OUT=txt|json # stream output as TXT or JSON payload" \
 	"make run-json P=openai PROMPT='hello' # run with JSON output" \
 	"make check-conn P=openai            # validate provider credentials" \
+	"make check-conn P=openai OUT=txt|json # check output as TXT or JSON" \
 	"make check-conn-json P=openai       # credential check as JSON" \
-	"make test-llm-all                   # live hello-world test across all providers" \
+	"make providers OUT=json             # providers as JSON (same as providers-json)" \
+	"make list P=openai OUT=json         # model list as JSON (same as list-json)" \
+	"make test-llm-all                   # live hello prompt across providers (use HELLO_* overrides)" \
 	"make cli ARGS='--json run --provider openai --prompt hello' # pass raw args" \
 	"make example V=openai               # run standalone provider example script" \
 	"" \
@@ -66,31 +74,31 @@ cli: ## generic CLI passthrough: make cli ARGS='providers'
 	$(UV) run llm-examples $(ARGS)
 
 run-cli: ## run prompt from inline string (CLI)
-	$(UV) run llm-examples run --provider $(P) --prompt "$(PROMPT)" --max-tokens $(MAX_TOKENS) $(if $(M),--model "$(M)") $(if $(SYSTEM),--system "$(SYSTEM)")
+	$(UV) run llm-examples $(if $(filter json,$(OUT)),--json) run --provider $(P) --prompt "$(PROMPT)" --max-tokens $(MAX_TOKENS) $(if $(M),--model "$(M)") $(if $(SYSTEM),--system "$(SYSTEM)")
 
 run-file: ## run prompt from file path
-	$(UV) run llm-examples run --provider $(P) --prompt-file "$(PROMPT_FILE)" --max-tokens $(MAX_TOKENS) $(if $(M),--model "$(M)") $(if $(SYSTEM),--system "$(SYSTEM)")
+	$(UV) run llm-examples $(if $(filter json,$(OUT)),--json) run --provider $(P) --prompt-file "$(PROMPT_FILE)" --max-tokens $(MAX_TOKENS) $(if $(M),--model "$(M)") $(if $(SYSTEM),--system "$(SYSTEM)")
 
 run-stream: ## run prompt with streaming output
-	$(UV) run llm-examples run --provider $(P) --prompt "$(PROMPT)" --stream --max-tokens $(MAX_TOKENS) $(if $(M),--model "$(M)") $(if $(SYSTEM),--system "$(SYSTEM)")
+	$(UV) run llm-examples $(if $(filter json,$(OUT)),--json) run --provider $(P) --prompt "$(PROMPT)" --stream --max-tokens $(MAX_TOKENS) $(if $(M),--model "$(M)") $(if $(SYSTEM),--system "$(SYSTEM)")
 
 run-json: ## run prompt with JSON output
 	$(UV) run llm-examples --json run --provider $(P) --prompt "$(PROMPT)" --max-tokens $(MAX_TOKENS) $(if $(M),--model "$(M)") $(if $(SYSTEM),--system "$(SYSTEM)")
 
 list: ## list models
-	$(UV) run llm-examples list-models --provider $(P)
+	$(UV) run llm-examples $(if $(filter json,$(OUT)),--json) list-models --provider $(P)
 
 list-json: ## list models with JSON output
 	$(UV) run llm-examples --json list-models --provider $(P)
 
 check-conn: ## credential check
-	$(UV) run llm-examples check --provider $(P)
+	$(UV) run llm-examples $(if $(filter json,$(OUT)),--json) check --provider $(P)
 
 check-conn-json: ## credential check with JSON output
 	$(UV) run llm-examples --json check --provider $(P)
 
 providers: ## list providers
-	$(UV) run llm-examples providers
+	$(UV) run llm-examples $(if $(filter json,$(OUT)),--json) providers
 
 providers-json: ## list providers with JSON output
 	$(UV) run llm-examples --json providers
@@ -102,8 +110,10 @@ test-llm-all: ## live check + hello-world prompt for all providers
 	@set -e; \
 	for provider in openai claude gemini deepseek qwen zai; do \
 		echo "== $$provider =="; \
+		max_tokens="$(HELLO_MAX_TOKENS)"; \
+		if [ "$$provider" = "zai" ]; then max_tokens="$(HELLO_MAX_TOKENS_ZAI)"; fi; \
 		$(MAKE) check-conn P=$$provider; \
-		$(MAKE) run-json P=$$provider PROMPT="$(HELLO_PROMPT)" MAX_TOKENS=32; \
+		$(MAKE) run-json P=$$provider PROMPT="$(HELLO_PROMPT)" MAX_TOKENS=$$max_tokens; \
 	done
 
 test: ## run test suite

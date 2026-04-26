@@ -25,7 +25,9 @@ PROVIDER_ROWS = (
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
-def test_chat_success(provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_success(
+    provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = provider_cls()
     request = ChatRequest(provider=provider_name, model=client.default_model, prompt="hello")
 
@@ -46,7 +48,9 @@ def test_chat_success(provider_name: str, provider_cls: type, monkeypatch: pytes
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
-def test_chat_auth_error(provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_auth_error(
+    provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = provider_cls()
     request = ChatRequest(provider=provider_name, model=client.default_model, prompt="hello")
 
@@ -60,7 +64,9 @@ def test_chat_auth_error(provider_name: str, provider_cls: type, monkeypatch: py
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
-def test_chat_rate_limit_error(provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_rate_limit_error(
+    provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = provider_cls()
     request = ChatRequest(provider=provider_name, model=client.default_model, prompt="hello")
 
@@ -74,7 +80,9 @@ def test_chat_rate_limit_error(provider_name: str, provider_cls: type, monkeypat
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
-def test_list_models_success(provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_list_models_success(
+    provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from llm_examples.domain_types import ModelInfo
 
     client = provider_cls()
@@ -88,7 +96,9 @@ def test_list_models_success(provider_name: str, provider_cls: type, monkeypatch
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
-def test_list_models_fallback(provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_list_models_fallback(
+    provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = provider_cls()
 
     def unsupported(self) -> list:  # type: ignore[type-arg]
@@ -101,9 +111,13 @@ def test_list_models_fallback(provider_name: str, provider_cls: type, monkeypatc
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
-def test_stream_success(provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_success(
+    provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = provider_cls()
-    request = ChatRequest(provider=provider_name, model=client.default_model, prompt="hello", stream=True)
+    request = ChatRequest(
+        provider=provider_name, model=client.default_model, prompt="hello", stream=True
+    )
 
     def fake_stream(self, req: ChatRequest) -> Iterable[str]:
         self.stream_is_simulated = False
@@ -116,7 +130,9 @@ def test_stream_success(provider_name: str, provider_cls: type, monkeypatch: pyt
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
-def test_check_success(provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_success(
+    provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = provider_cls()
 
     def fake_check(self, started: float) -> CheckResult:

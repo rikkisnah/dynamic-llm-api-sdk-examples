@@ -8,6 +8,7 @@ import sys
 DEFAULT_MODEL = "qwen-plus"
 DEFAULT_BASE_URL = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 
+
 def build_client(api_key: str, base_url: str) -> object:
     from openai import OpenAI  # type: ignore[import-not-found]
 

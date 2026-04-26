@@ -7,13 +7,20 @@ from collections.abc import Iterable
 from typing import cast
 
 from llm_examples.config import get_provider_config
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, ModelInfo, ProviderName
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    ModelInfo,
+    ProviderName,
+)
 from llm_examples.providers._common import (
     ProviderClientBase,
     attr,
     model_info_list,
     normalize_usage,
     text_from_openai_response,
+    text_from_openai_stream_event,
 )
 
 DEFAULT_MODEL = "deepseek-chat"
@@ -34,11 +41,12 @@ class DeepSeekProvider(ProviderClientBase):
 
     def _sdk_client(self) -> object:
         if self._client is None:
-            from openai import OpenAI  # type: ignore[import-not-found]
+            from openai import OpenAI
 
-            kwargs: dict[str, object] = {"api_key": self._config.api_key}
-            kwargs["base_url"] = self._config.base_url or "https://api.deepseek.com"
-            self._client = OpenAI(**kwargs)
+            self._client = OpenAI(
+                api_key=self._config.api_key,
+                base_url=self._config.base_url or "https://api.deepseek.com",
+            )
         return self._client
 
     def _list_models_impl(self) -> list[ModelInfo]:
@@ -70,7 +78,9 @@ class DeepSeekProvider(ProviderClientBase):
             messages.append({"role": "system", "content": req.system})
         messages.append({"role": "user", "content": req.prompt})
 
-        response = create_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=False)
+        response = create_fn(
+            model=req.model, messages=messages, max_tokens=req.max_tokens, stream=False
+        )
         return ChatResponse(
             provider=req.provider,
             model=req.model,
@@ -94,15 +104,13 @@ class DeepSeekProvider(ProviderClientBase):
         messages.append({"role": "user", "content": req.prompt})
 
         self.stream_is_simulated = False
-        stream_obj = create_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=True)
+        stream_obj = create_fn(
+            model=req.model, messages=messages, max_tokens=req.max_tokens, stream=True
+        )
         chunks: list[str] = []
         for event in stream_obj:
-            choices = attr(event, "choices")
-            if not isinstance(choices, list) or not choices:
-                continue
-            delta = attr(choices[0], "delta")
-            piece = attr(delta, "content") if delta is not None else None
-            if isinstance(piece, str) and piece:
+            piece = text_from_openai_stream_event(event)
+            if piece:
                 chunks.append(piece)
         return chunks
 

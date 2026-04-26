@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from argparse import Namespace
-from typing import Callable, Mapping
+from collections.abc import Callable, Mapping
 
 from llm_examples.cli.cmd_check import handle_check
 from llm_examples.cli.cmd_list import handle_list_models

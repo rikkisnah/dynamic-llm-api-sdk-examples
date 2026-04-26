@@ -81,7 +81,9 @@ def _load_example_module(script_name: str) -> ModuleType:
         ),
     ],
 )
-def test_example_main(script_name: str, env_name: str, patcher, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_example_main(
+    script_name: str, env_name: str, patcher, monkeypatch: pytest.MonkeyPatch
+) -> None:
     module = _load_example_module(script_name)
     monkeypatch.setenv(env_name, "test-key")
     patcher(module, monkeypatch)

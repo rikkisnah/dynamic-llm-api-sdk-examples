@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, ModelInfo, ProviderName, Usage
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    ModelInfo,
+    ProviderName,
+    Usage,
+)
 from llm_examples.llm_client import BaseClient
 
 

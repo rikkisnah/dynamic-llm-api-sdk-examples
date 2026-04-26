@@ -6,9 +6,17 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
-from typing import Literal
+from typing import Literal, cast
 
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, LLMError, ModelInfo, Usage
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    LLMError,
+    ModelInfo,
+    ProviderName,
+    Usage,
+)
 from llm_examples.llm_client import BaseClient
 
 logger = logging.getLogger(__name__)
@@ -16,9 +24,9 @@ logger = logging.getLogger(__name__)
 _NOT_SUPPORTED_HINTS = ("not support", "unsupported", "not implemented", "does not support")
 
 
-def classify_exception(exc: Exception) -> Literal[
-    "auth", "rate_limit", "bad_request", "network", "server", "unsupported"
-]:
+def classify_exception(
+    exc: Exception,
+) -> Literal["auth", "rate_limit", "bad_request", "network", "server", "unsupported"]:
     """Classify provider exceptions into normalized categories."""
     name = exc.__class__.__name__.lower()
     message = str(exc).lower()
@@ -36,10 +44,14 @@ def classify_exception(exc: Exception) -> Literal[
     return "server"
 
 
-def model_info_list(provider: str, model_ids: Iterable[str], *, fallback: bool = False) -> list[ModelInfo]:
+def model_info_list(
+    provider: ProviderName, model_ids: Iterable[str], *, fallback: bool = False
+) -> list[ModelInfo]:
     """Build normalized model list payload."""
     description = "fallback allowlist" if fallback else ""
-    return [ModelInfo(provider=provider, id=model_id, description=description) for model_id in model_ids]
+    return [
+        ModelInfo(provider=provider, id=model_id, description=description) for model_id in model_ids
+    ]
 
 
 def chunk_text(text: str, *, chunk_size: int = 24) -> Iterator[str]:
@@ -53,7 +65,7 @@ def chunk_text(text: str, *, chunk_size: int = 24) -> Iterator[str]:
 def attr(obj: object, name: str, default: object | None = None) -> object | None:
     """Safe object attribute lookup for mixed SDK response types."""
     try:
-        return getattr(obj, name)
+        return cast(object | None, getattr(obj, name))
     except Exception:
         return default
 
@@ -84,22 +96,82 @@ def normalize_usage(payload: object) -> Usage | None:
     )
 
 
+def text_from_content(content: object) -> str:
+    """Extract text from mixed SDK content payload shapes."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            piece = text_from_content(item)
+            if piece:
+                parts.append(piece)
+        return "".join(parts)
+    if isinstance(content, dict):
+        for key in ("text", "output_text", "content", "parts", "value"):
+            piece = text_from_content(content.get(key))
+            if piece:
+                return piece
+        return ""
+    for name in ("text", "output_text", "content", "parts", "value"):
+        nested = attr(content, name)
+        if nested is None or nested is content:
+            continue
+        piece = text_from_content(nested)
+        if piece:
+            return piece
+    return ""
+
+
 def text_from_openai_response(response: object) -> str:
     """Extract text from OpenAI-style chat responses."""
+    direct_text = text_from_content(attr(response, "text"))
+    if direct_text:
+        return direct_text
+    if isinstance(response, dict):
+        direct_text = text_from_content(response.get("text"))
+        if direct_text:
+            return direct_text
     choices = attr(response, "choices")
+    if isinstance(response, dict):
+        choices = response.get("choices")
     if isinstance(choices, list) and choices:
         first = choices[0]
         message = attr(first, "message")
+        if isinstance(first, dict):
+            message = first.get("message")
         content = attr(message, "content") if message is not None else None
-        if isinstance(content, str):
-            return content
+        if isinstance(message, dict):
+            content = message.get("content")
+        text = text_from_content(content)
+        if text:
+            return text
     return ""
+
+
+def text_from_openai_stream_event(event: object) -> str:
+    """Extract text chunk from one OpenAI-style stream event."""
+    choices = attr(event, "choices")
+    if isinstance(event, dict):
+        choices = event.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0]
+    delta = attr(first, "delta")
+    if isinstance(first, dict):
+        delta = first.get("delta")
+    if delta is None:
+        return ""
+    content = attr(delta, "content")
+    if isinstance(delta, dict):
+        content = delta.get("content")
+    return text_from_content(content)
 
 
 class ProviderClientBase(BaseClient, ABC):
     """Shared adapter behavior for normalized provider clients."""
 
-    provider: str
+    provider: ProviderName
     default_model: str
     fallback_models: tuple[str, ...] = ()
 
@@ -116,10 +188,10 @@ class ProviderClientBase(BaseClient, ABC):
             return []
         except LLMError:
             raise
-        except Exception as exc:  # noqa: BLE001 - normalized below
+        except Exception as exc:
             if self.fallback_models and self._is_unsupported(exc):
                 return model_info_list(self.provider, self.fallback_models, fallback=True)
-            raise self._to_error(exc, model=None, action="list models")
+            raise self._to_error(exc, model=None, action="list models") from exc
 
     def chat(self, req: ChatRequest) -> ChatResponse:
         started = time.perf_counter()
@@ -127,7 +199,7 @@ class ProviderClientBase(BaseClient, ABC):
             response = self._chat_impl(req)
         except LLMError:
             raise
-        except Exception as exc:  # noqa: BLE001 - normalized below
+        except Exception as exc:
             raise self._to_error(exc, model=req.model, action="run prompt") from exc
         elapsed_ms = (time.perf_counter() - started) * 1000
         return ChatResponse(
@@ -146,7 +218,7 @@ class ProviderClientBase(BaseClient, ABC):
             return chunks
         except LLMError:
             raise
-        except Exception as exc:  # noqa: BLE001 - normalized below
+        except Exception as exc:
             raise self._to_error(exc, model=req.model, action="stream prompt") from exc
 
     def check(self) -> CheckResult:
@@ -155,7 +227,7 @@ class ProviderClientBase(BaseClient, ABC):
             return self._check_impl(started)
         except LLMError:
             raise
-        except Exception as exc:  # noqa: BLE001 - normalized below
+        except Exception as exc:
             raise self._to_error(exc, model=None, action="check credentials") from exc
 
     def _to_error(self, exc: Exception, *, model: str | None, action: str) -> LLMError:

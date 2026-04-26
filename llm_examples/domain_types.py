@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, Mapping
+from typing import Literal
 
 ProviderName = Literal["openai", "claude", "gemini", "deepseek", "qwen", "zai"]
 ErrorKind = Literal["auth", "rate_limit", "bad_request", "network", "server", "unsupported"]
@@ -104,5 +105,8 @@ class MissingCredential(LLMError):
     """Credential-specific auth error."""
 
     def __init__(self, *, provider: ProviderName, env_var: str) -> None:
-        message = f"Missing credential for provider '{provider}'. Expected environment variable: {env_var}."
+        message = (
+            f"Missing credential for provider '{provider}'. "
+            f"Expected environment variable: {env_var}."
+        )
         super().__init__(provider=provider, model=None, kind="auth", message=message, cause=None)

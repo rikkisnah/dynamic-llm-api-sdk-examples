@@ -6,7 +6,14 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, LLMError, ModelInfo, ProviderName
+from llm_examples.domain_types import (
+    ChatRequest,
+    ChatResponse,
+    CheckResult,
+    LLMError,
+    ModelInfo,
+    ProviderName,
+)
 from llm_examples.registry import get_client
 
 
@@ -50,7 +57,7 @@ def run_prompt(
         response = client.chat(request)
     except LLMError:
         raise
-    except Exception as exc:  # noqa: BLE001 - normalized below
+    except Exception as exc:
         raise LLMError(
             provider=provider,
             model=effective_model,
@@ -99,7 +106,7 @@ def stream_prompt(
         )
     except LLMError:
         raise
-    except Exception as exc:  # noqa: BLE001 - normalized below
+    except Exception as exc:
         raise LLMError(
             provider=provider,
             model=effective_model,

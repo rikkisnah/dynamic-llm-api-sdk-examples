@@ -3,17 +3,34 @@
 from __future__ import annotations
 
 import os
-from typing import Mapping
-
-try:
-    from dotenv import load_dotenv
-except Exception:  # pragma: no cover - optional dependency fallback for constrained envs
-    def load_dotenv() -> bool:
-        return False
+from collections.abc import Callable, Mapping
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 
 from llm_examples.domain_types import MissingCredential, ProviderConfig, ProviderName
 
-load_dotenv()
+PACKAGE_NAME = "dynamic-llm-api-sdk-examples"
+
+
+def _fallback_load_dotenv(*_args: object, **_kwargs: object) -> bool:
+    return False
+
+
+_dotenv_loader: Callable[..., bool]
+try:
+    from dotenv import load_dotenv as _load_dotenv_impl
+except Exception:  # pragma: no cover - optional dependency fallback for constrained envs
+    _dotenv_loader = _fallback_load_dotenv
+else:
+    _dotenv_loader = _load_dotenv_impl
+
+
+def _load_dotenv() -> bool:
+    """Load `.env` when python-dotenv is available."""
+    return _dotenv_loader()
+
+
+_load_dotenv()
 
 _ENV_KEYS: Mapping[ProviderName, tuple[str, str | None]] = {
     "openai": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
@@ -47,3 +64,12 @@ def get_provider_config(provider: ProviderName) -> ProviderConfig:
         configured = os.getenv(base_url_env, "").strip()
         base_url = configured or _DEFAULT_BASE_URLS.get(provider)
     return ProviderConfig(provider=provider, api_key=api_key, base_url=base_url)
+
+
+def get_app_version() -> str:
+    """Resolve package version for CLI/UI display."""
+    try:
+        value = _package_version(PACKAGE_NAME)
+        return value if isinstance(value, str) and value else "0.0.0"
+    except PackageNotFoundError:
+        return "0.0.0"
