@@ -4,12 +4,14 @@ Dynamic multi-provider LLM SDK examples with strict CLI and Streamlit parity.
 
 Supported providers:
 
-- OpenAI
-- Claude (Anthropic)
-- Gemini (Google)
-- DeepSeek
-- Qwen (DashScope OpenAI-compatible)
-- Z.ai
+| Provider | Docs | Default API Base URL |
+|---|---|---|
+| OpenAI | [platform.openai.com/docs](https://platform.openai.com/docs) | `https://api.openai.com/v1` |
+| Claude (Anthropic) | [docs.anthropic.com](https://docs.anthropic.com) | `https://api.anthropic.com` |
+| Gemini (Google) | [ai.google.dev/docs](https://ai.google.dev/docs) | `https://generativelanguage.googleapis.com` |
+| DeepSeek | [api-docs.deepseek.com](https://api-docs.deepseek.com) | `https://api.deepseek.com` |
+| Qwen (DashScope OpenAI-compatible) | [dashscope.aliyun.com](https://dashscope.aliyun.com) | `https://dashscope-us.aliyuncs.com/compatible-mode/v1` |
+| Z.ai | [docs.z.ai](https://docs.z.ai) | `https://api.z.ai/api/paas/v4` |
 
 ## Quickstart
 
