@@ -15,7 +15,7 @@ Use per-provider adapters that implement a shared `BaseClient` interface.
 - OpenAI: native `openai`
 - Claude: native `anthropic`
 - Gemini: native `google-genai`
-- Qwen: native `dashscope`
+- Qwen: OpenAI-compatible path via `openai` SDK + DashScope compatible-mode endpoint
 - DeepSeek: OpenAI-compatible path via `openai` SDK + DeepSeek base URL
 - Z.ai: prefer `zai-sdk`, fallback to documented OpenAI-compatible HTTP endpoint
 

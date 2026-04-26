@@ -64,7 +64,8 @@ def _load_example_module(script_name: str) -> ModuleType:
             "qwen_example.py",
             "DASHSCOPE_API_KEY",
             lambda module, monkeypatch: (
-                monkeypatch.setattr(module, "list_models", lambda: ["model-a"]),
+                monkeypatch.setattr(module, "build_client", lambda *_: object()),
+                monkeypatch.setattr(module, "list_models", lambda *_: ["model-a"]),
                 monkeypatch.setattr(module, "run_prompt", lambda *_: "ok"),
             ),
         ),

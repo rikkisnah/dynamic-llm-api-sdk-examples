@@ -52,7 +52,10 @@ def chunk_text(text: str, *, chunk_size: int = 24) -> Iterator[str]:
 
 def attr(obj: object, name: str, default: object | None = None) -> object | None:
     """Safe object attribute lookup for mixed SDK response types."""
-    return getattr(obj, name, default)
+    try:
+        return getattr(obj, name)
+    except Exception:
+        return default
 
 
 def mapping_value(obj: object, key: str, default: object | None = None) -> object | None:

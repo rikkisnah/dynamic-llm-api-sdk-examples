@@ -8,7 +8,7 @@ Supported providers:
 - Claude (Anthropic)
 - Gemini (Google)
 - DeepSeek
-- Qwen (DashScope)
+- Qwen (DashScope OpenAI-compatible)
 - Z.ai
 
 ## Quickstart
@@ -24,6 +24,22 @@ Makefile is the primary way to run everything. See all commands:
 ```bash
 make help
 ```
+
+## Make Targets
+
+Common targets:
+
+- `make setup`: install app + dev dependencies with `uv`
+- `make run`: start Streamlit UI (default port `8501`)
+- `make providers`: list configured providers
+- `make list P=openai`: list models for provider
+- `make run-cli P=openai PROMPT="hello"`: run a CLI prompt
+- `make run-stream P=openai PROMPT="hello"`: run with streaming
+- `make check-conn P=openai`: validate credentials for one provider
+- `make test-llm-all`: live connection + hello-world prompt across all 6 providers
+- `make check`: run lint, import checks, typing, tests, and architecture score
+
+Use `make help` for the complete grouped list, including JSON and passthrough targets.
 
 Run CLI (make wrappers):
 

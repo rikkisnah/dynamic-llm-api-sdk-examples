@@ -4,6 +4,7 @@
 > **Audience:** Future agent sessions (Claude Code / Codex CLI) and human reviewers.
 > **Update rule:** Any code change that diverges from this plan must update this file in the same commit, alongside `README.md` and `CLAUDE.md`/`AGENTS.md`.
 > **Provenance:** Locked after the user resolved every ambiguity in §17 — see that section before treating any item here as "the agent decided."
+> **Post-lock update (2026-04-26):** User requested Qwen to use DashScope's OpenAI-compatible path (`/compatible-mode/v1`) and validated against US endpoint.
 
 ---
 
@@ -14,7 +15,7 @@ Demonstrate **multi-provider LLM SDK usage** across six vendors, exposed through
 - **CLI** (Python 3, managed with `uv`)
 - **UI** (Streamlit)
 
-Providers in scope: **OpenAI, Claude (Anthropic), Gemini (Google), DeepSeek, Qwen (DashScope), Z.ai**.
+Providers in scope: **OpenAI, Claude (Anthropic), Gemini (Google), DeepSeek, Qwen (DashScope OpenAI-compatible), Z.ai**.
 
 Architecture quality bar: emulate the eight dimensions of `/mnt/data/src/scm/stc/scripts/score_architecture.py`, **plus four agent-first dimensions** (§13). All twelve gated ≥ 8/10 in CI.
 
@@ -49,7 +50,7 @@ Tier rule: a module may import from **lower or equal** tiers only. Upward import
 | 2 | `providers/openai_provider.py` | OpenAI native SDK (`openai`) adapter |
 | 2 | `providers/claude_provider.py` | Anthropic native SDK (`anthropic`) adapter |
 | 2 | `providers/gemini_provider.py` | Google native SDK (`google-genai`) adapter |
-| 2 | `providers/qwen_provider.py` | Qwen native SDK (`dashscope`) adapter |
+| 2 | `providers/qwen_provider.py` | Qwen adapter via DashScope OpenAI-compatible endpoint (`openai` SDK) |
 | 2 | `providers/deepseek_provider.py` | DeepSeek adapter — uses the **OpenAI-compatible SDK** path (`openai` SDK pointed at `api.deepseek.com`), per DeepSeek's own docs. Kept as its own module so it reads as "calling DeepSeek," not "repurposing OpenAI." |
 | 2 | `providers/zai_provider.py` | Z.ai native SDK (`zai-sdk`) adapter; falls back to direct httpx against the documented OpenAI-compatible endpoint if the SDK is unstable (decision recorded in ADR 0001) |
 | 3 | `registry.py` | `PROVIDERS` tuple + `get_client(provider)` dispatch table |
@@ -140,7 +141,7 @@ CLI(cmd_run) ──┘        │
 
 ## 6. Provider Strategy
 
-Native SDK per vendor, except DeepSeek which uses its documented OpenAI-compatible path:
+Native SDK per vendor, except DeepSeek and Qwen which use documented OpenAI-compatible paths:
 
 | Provider | Library | Endpoint | Default model |
 |---|---|---|---|
@@ -148,7 +149,7 @@ Native SDK per vendor, except DeepSeek which uses its documented OpenAI-compatib
 | Claude | `anthropic` | default | `claude-haiku-4-5` |
 | Gemini | `google-genai` (the new unified SDK, **not** `google-generativeai`) | default | `gemini-2.5-flash` |
 | DeepSeek | `openai` SDK with `base_url=https://api.deepseek.com` (DeepSeek-recommended path) | DeepSeek | `deepseek-chat` |
-| Qwen | `dashscope` | DashScope-International | `qwen-plus` |
+| Qwen | `openai` SDK against DashScope OpenAI-compatible endpoint | `https://dashscope-us.aliyuncs.com/compatible-mode/v1` (default) | `qwen-plus` |
 | Z.ai | `zai-sdk` (fallback: `httpx` against `https://api.z.ai/api/paas/v4`) | Z.ai | `glm-4.6` |
 
 Each `providers/*.py` doubles as a per-vendor reference. The "copy one file and run it" surface lives in `examples/` (§4) — those are deliberately untethered from the package.

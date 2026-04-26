@@ -1,4 +1,4 @@
-"""Tier 2: Qwen DashScope native SDK adapter."""
+"""Tier 2: Qwen adapter using OpenAI-compatible DashScope endpoint."""
 
 from __future__ import annotations
 
@@ -11,29 +11,18 @@ from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, Mo
 from llm_examples.providers._common import (
     ProviderClientBase,
     attr,
-    mapping_value,
     model_info_list,
     normalize_usage,
+    text_from_openai_response,
 )
 
 DEFAULT_MODEL = "qwen-plus"
-FALLBACK_MODELS = ("qwen-plus", "qwen-turbo")
-
-
-def _extract_qwen_text(response: object) -> str:
-    output = attr(response, "output", response)
-    choices = attr(output, "choices", mapping_value(output, "choices"))
-    if isinstance(choices, list) and choices:
-        first = choices[0]
-        message = attr(first, "message", mapping_value(first, "message"))
-        content = attr(message, "content", mapping_value(message, "content"))
-        if isinstance(content, str):
-            return content
-    return ""
+FALLBACK_MODELS = ("qwen-plus", "qwen-turbo", "qwen-max")
+DEFAULT_BASE_URL = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 
 
 class QwenProvider(ProviderClientBase):
-    """Qwen provider client using DashScope SDK."""
+    """Qwen provider client through OpenAI-compatible API."""
 
     provider: ProviderName = "qwen"
     default_model = DEFAULT_MODEL
@@ -42,79 +31,82 @@ class QwenProvider(ProviderClientBase):
     def __init__(self) -> None:
         super().__init__()
         self._config = get_provider_config(self.provider)
+        self._client: object | None = None
 
-    def _generation_class(self) -> object:
-        from dashscope import Generation  # type: ignore[import-not-found]
+    def _sdk_client(self) -> object:
+        if self._client is None:
+            from openai import OpenAI  # type: ignore[import-not-found]
 
-        return Generation
+            self._client = OpenAI(
+                api_key=self._config.api_key,
+                base_url=self._config.base_url or DEFAULT_BASE_URL,
+            )
+        return self._client
 
     def _list_models_impl(self) -> list[ModelInfo]:
-        return model_info_list(self.provider, self.fallback_models, fallback=True)
+        models_obj = attr(self._sdk_client(), "models")
+        list_fn = attr(models_obj, "list") if models_obj is not None else None
+        if not callable(list_fn):
+            return model_info_list(self.provider, self.fallback_models, fallback=True)
+        payload = list_fn()
+        data = attr(payload, "data", payload)
+        model_ids: list[str] = []
+        if isinstance(data, list):
+            for item in data:
+                model_id = attr(item, "id")
+                if isinstance(model_id, str):
+                    model_ids.append(model_id)
+        if not model_ids:
+            return model_info_list(self.provider, self.fallback_models, fallback=True)
+        return model_info_list(self.provider, model_ids)
 
     def _chat_impl(self, req: ChatRequest) -> ChatResponse:
-        generation = self._generation_class()
-        call_fn = attr(generation, "call")
+        chat_obj = attr(self._sdk_client(), "chat")
+        completions_obj = attr(chat_obj, "completions") if chat_obj is not None else None
+        call_fn = attr(completions_obj, "create")
         if not callable(call_fn):
-            raise RuntimeError("DashScope Generation.call is unavailable.")
-        kwargs: dict[str, object] = {
-            "model": req.model,
-            "messages": [{"role": "user", "content": req.prompt}],
-            "api_key": self._config.api_key,
-            "result_format": "message",
-            "max_tokens": req.max_tokens,
-        }
-        if self._config.base_url:
-            kwargs["base_url"] = self._config.base_url
+            raise RuntimeError("Qwen OpenAI-compatible chat API unavailable.")
+        messages: list[dict[str, str]] = []
         if req.system:
-            kwargs["system"] = req.system
-        response = call_fn(**kwargs)
+            messages.append({"role": "system", "content": req.system})
+        messages.append({"role": "user", "content": req.prompt})
+        response = call_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=False)
         return ChatResponse(
             provider=req.provider,
             model=req.model,
-            text=_extract_qwen_text(response),
+            text=text_from_openai_response(response),
             latency_ms=0.0,
-            usage=normalize_usage(attr(response, "usage", mapping_value(response, "usage"))),
-            raw_id=cast(str | None, attr(response, "request_id", mapping_value(response, "request_id"))),
+            usage=normalize_usage(attr(response, "usage")),
+            raw_id=cast(str | None, attr(response, "id")),
             stream_simulated=False,
         )
 
     def _stream_impl(self, req: ChatRequest) -> Iterable[str]:
-        generation = self._generation_class()
-        call_fn = attr(generation, "call")
+        chat_obj = attr(self._sdk_client(), "chat")
+        completions_obj = attr(chat_obj, "completions") if chat_obj is not None else None
+        call_fn = attr(completions_obj, "create")
         if not callable(call_fn):
             return self._simulate_stream(req)
-        kwargs: dict[str, object] = {
-            "model": req.model,
-            "messages": [{"role": "user", "content": req.prompt}],
-            "api_key": self._config.api_key,
-            "result_format": "message",
-            "max_tokens": req.max_tokens,
-            "stream": True,
-            "incremental_output": True,
-        }
-        if self._config.base_url:
-            kwargs["base_url"] = self._config.base_url
+        messages: list[dict[str, str]] = []
         if req.system:
-            kwargs["system"] = req.system
+            messages.append({"role": "system", "content": req.system})
+        messages.append({"role": "user", "content": req.prompt})
         self.stream_is_simulated = False
-        stream = call_fn(**kwargs)
+        stream = call_fn(model=req.model, messages=messages, max_tokens=req.max_tokens, stream=True)
         pieces: list[str] = []
-        for item in stream:
-            text = _extract_qwen_text(item)
-            if text:
-                pieces.append(text)
+        for event in stream:
+            choices = attr(event, "choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+            delta = attr(choices[0], "delta")
+            piece = attr(delta, "content") if delta is not None else None
+            if isinstance(piece, str) and piece:
+                pieces.append(piece)
         if not pieces:
             return self._simulate_stream(req)
         return pieces
 
     def _check_impl(self, started: float) -> CheckResult:
-        _ = self._chat_impl(
-            ChatRequest(
-                provider=self.provider,
-                model=self.default_model,
-                prompt="ping",
-                max_tokens=1,
-            )
-        )
+        _ = self._list_models_impl()
         latency_ms = (time.perf_counter() - started) * 1000
         return CheckResult(provider=self.provider, ok=True, latency_ms=latency_ms, detail="ok")
