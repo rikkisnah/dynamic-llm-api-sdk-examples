@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, cast
 
 try:
     import streamlit as st
@@ -27,6 +27,23 @@ def get_selected_provider(default: str) -> str:
 def set_selected_provider(value: str) -> None:
     """Persist selected provider in session state."""
     st.session_state["selected_provider"] = value
+
+
+PageName = Literal["API", "Chat", "Logs"]
+
+
+def get_selected_page(default: PageName = "API") -> PageName:
+    """Read selected UI page from session state."""
+    value = st.session_state.get("selected_page")
+    if isinstance(value, str) and value in {"API", "Chat", "Logs"}:
+        return cast(PageName, value)
+    st.session_state["selected_page"] = default
+    return default
+
+
+def set_selected_page(value: PageName) -> None:
+    """Persist selected UI page in session state."""
+    st.session_state["selected_page"] = value
 
 
 def get_output_mode(default: str = "txt") -> str:

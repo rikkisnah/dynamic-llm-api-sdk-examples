@@ -50,6 +50,10 @@ from llm_examples.ui.state import (
 )
 from llm_examples.ui.web_research import WebSource, research_context
 
+REPLY_SCROLL_HEIGHT = 340
+REPLY_SCROLL_CHAR_THRESHOLD = 2_000
+REPLY_SCROLL_LINE_THRESHOLD = 24
+
 
 @dataclass(frozen=True, slots=True)
 class ChatControls:
@@ -77,12 +81,29 @@ def _prompt_history_scope_for_chat(provider: ProviderName, model: str) -> str:
     return f"chat:{provider}:{model}"
 
 
+def _should_scroll_response(content: str) -> bool:
+    lines = content.splitlines()
+    if len(content) >= REPLY_SCROLL_CHAR_THRESHOLD:
+        return True
+    return len(lines) >= REPLY_SCROLL_LINE_THRESHOLD
+
+
+def _render_assistant_content(content: str) -> None:
+    rendered = content.strip() or "[No response text returned.]"
+    if _should_scroll_response(rendered):
+        with st.container(height=REPLY_SCROLL_HEIGHT):
+            st.markdown(rendered)
+    else:
+        st.markdown(rendered)
+    with st.expander("Copy response", expanded=False):
+        st.code(rendered, language=None)
+
+
 def _render_chat_message(role: str, content: str) -> None:
     chat_role = "assistant" if role == "assistant" else "user"
     with st.chat_message(chat_role):
         if role == "assistant":
-            rendered = content.strip() or "[No response text returned.]"
-            st.markdown(wrapped_text_html(rendered), unsafe_allow_html=True)
+            _render_assistant_content(content)
             return
         if len(content) > 1_000:
             st.markdown(wrapped_text_html(content[:1_000] + "..."), unsafe_allow_html=True)
@@ -261,19 +282,19 @@ def _render_chat_assistant_reply(
                     first_chunk_seen = True
                     status_line.info(f"Streaming reply from `{provider}` / `{model_value}`...")
                 parts.append(chunk)
-                rendered_reply.markdown(
-                    wrapped_text_html("".join(parts)),
-                    unsafe_allow_html=True,
-                )
+                rendered_reply.code("".join(parts), language=None)
             elapsed = monotonic() - started_at
             reply = "".join(parts).strip()
             if reply:
+                rendered_reply.empty()
+                _render_assistant_content(reply)
                 status_line.success(
                     f"Completed in {elapsed:.1f}s ({len(parts)} chunks, {len(reply)} chars)."
                 )
                 return reply
             fallback = "[No response text returned.]"
-            rendered_reply.markdown(wrapped_text_html(fallback), unsafe_allow_html=True)
+            rendered_reply.empty()
+            _render_assistant_content(fallback)
             status_line.warning(f"No text returned after {elapsed:.1f}s.")
             return fallback
         status_line.info(f"Generating reply from `{provider}` / `{model_value}`...")
@@ -287,7 +308,7 @@ def _render_chat_assistant_reply(
         )
         elapsed = monotonic() - started_at
         reply = response.text.strip() or "[No response text returned.]"
-        st.markdown(wrapped_text_html(reply), unsafe_allow_html=True)
+        _render_assistant_content(reply)
         if reply == "[No response text returned.]":
             status_line.warning(f"No text returned after {elapsed:.1f}s.")
         else:

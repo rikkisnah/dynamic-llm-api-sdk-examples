@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from html import escape
+from time import monotonic
 from typing import ClassVar, Literal
 
 try:
@@ -40,6 +41,7 @@ from llm_examples.ui.state import (
     get_latest_models,
     get_output_mode,
     get_prompt_history,
+    get_selected_page,
     get_selected_provider,
     get_ui_call_log,
     set_latest_models,
@@ -68,6 +70,9 @@ QUOTES: tuple[tuple[str, str, str], ...] = (
 )
 
 OutputMode = Literal["txt", "json"]
+API_REPLY_SCROLL_HEIGHT = 340
+API_REPLY_SCROLL_CHAR_THRESHOLD = 2_000
+API_REPLY_SCROLL_LINE_THRESHOLD = 24
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +85,48 @@ class RunFormInput:
     stream: bool
 
 
+@dataclass(frozen=True, slots=True)
+class RunProgress:
+    placeholder: object
+    started_at: float
+
+
 def _show_text(mode: OutputMode) -> bool:
     return mode == "txt"
 
 
 def _show_json(mode: OutputMode) -> bool:
     return mode == "json"
+
+
+def _should_scroll_api_reply(text: str) -> bool:
+    lines = text.splitlines()
+    if len(text) >= API_REPLY_SCROLL_CHAR_THRESHOLD:
+        return True
+    return len(lines) >= API_REPLY_SCROLL_LINE_THRESHOLD
+
+
+def _render_api_copy_block(text: str) -> None:
+    st.caption("Copy-ready text")
+    st.code(text, language=None)
+
+
+def _render_api_text_response(text: str) -> str:
+    rendered = text.strip() or "[No response text returned.]"
+    if _should_scroll_api_reply(rendered):
+        with st.container(height=API_REPLY_SCROLL_HEIGHT):
+            st.markdown(rendered)
+    else:
+        st.markdown(rendered)
+    _render_api_copy_block(rendered)
+    return rendered
+
+
+def _render_run_progress(provider: ProviderName, model: str) -> RunProgress:
+    status_line = st.empty()
+    started_at = monotonic()
+    status_line.info(f"Calling `{provider}` / `{model}`...")
+    return RunProgress(placeholder=status_line, started_at=started_at)
 
 
 def _load_provider_model_options(provider: ProviderName) -> list[str]:
@@ -183,7 +224,6 @@ def _render_quote() -> None:
     ):
         next_index = (_current_quote_index() + 1) % len(QUOTES)
         st.session_state["quote_index"] = next_index
-        st.rerun()
     category, quote, source = _quote_for_today()
     quote_line = f"Quote of the day · {category} · \"{quote}\" — {source}"
     controls_left.markdown(
@@ -264,6 +304,12 @@ def _render_providers(_selected_provider: ProviderName, output_mode: OutputMode)
     st.subheader("Providers")
     if _show_text(output_mode):
         st.dataframe(rows, width="stretch")
+        copy_lines = ["provider\tconfigured\tapi_key_env"]
+        for row in rows:
+            copy_lines.append(
+                f"{row['provider']}\t{row['configured']}\t{row['api_key_env']}"
+            )
+        _render_api_copy_block("\n".join(copy_lines))
     if _show_json(output_mode):
         st.code(pretty_json({"providers": rows}))
 
@@ -284,6 +330,7 @@ def _render_list_models(provider: ProviderName, output_mode: OutputMode) -> None
             payload = {"provider": provider, "models": [to_json_payload(model) for model in models]}
             if _show_text(output_mode):
                 st.write(ids)
+                _render_api_copy_block("\n".join(ids) if ids else "[No models returned.]")
             if _show_json(output_mode):
                 st.code(pretty_json(payload))
             _log_ui_call(
@@ -381,6 +428,7 @@ def _render_run_stream_result(
     output_mode: OutputMode,
     prompt_text: str,
     run_input: RunFormInput,
+    progress: RunProgress,
 ) -> None:
     result = stream_prompt(
         provider=provider,
@@ -389,17 +437,40 @@ def _render_run_stream_result(
         system=run_input.system or None,
         max_tokens=run_input.max_tokens,
     )
-    chunks = list(result.chunks)
+    chunks: list[str] = []
+    stream_preview = st.empty()
+    first_chunk_seen = False
+    for chunk in result.chunks:
+        if not first_chunk_seen:
+            first_chunk_seen = True
+            progress.placeholder.info(  # type: ignore[attr-defined]
+                f"Streaming reply from `{provider}` / `{run_input.model}`..."
+            )
+        chunks.append(chunk)
+        if _show_text(output_mode):
+            stream_preview.code("".join(chunks), language=None)
+    rendered_text = "".join(chunks)
+    elapsed = monotonic() - progress.started_at
+    rendered_clean = rendered_text.strip()
     payload = {
         "provider": provider,
         "model": result.model,
         "stream": True,
         "simulated_stream": result.simulated,
-        "text": "".join(chunks),
+        "text": rendered_text,
         "chunks": chunks,
     }
     if _show_text(output_mode):
-        st.write_stream(iter(chunks))
+        stream_preview.empty()
+        _render_api_text_response(rendered_text)
+    if rendered_clean:
+        progress.placeholder.success(  # type: ignore[attr-defined]
+            f"Completed in {elapsed:.1f}s ({len(chunks)} chunks, {len(rendered_clean)} chars)."
+        )
+    else:
+        progress.placeholder.warning(  # type: ignore[attr-defined]
+            f"No text returned after {elapsed:.1f}s."
+        )
     if _show_json(output_mode):
         st.code(pretty_json(payload))
     _log_ui_call(
@@ -418,7 +489,11 @@ def _render_run_non_stream_result(
     output_mode: OutputMode,
     prompt_text: str,
     run_input: RunFormInput,
+    progress: RunProgress,
 ) -> None:
+    progress.placeholder.info(  # type: ignore[attr-defined]
+        f"Generating reply from `{provider}` / `{run_input.model}`..."
+    )
     response = run_prompt(
         provider=provider,
         model=run_input.model or None,
@@ -426,9 +501,19 @@ def _render_run_non_stream_result(
         system=run_input.system or None,
         max_tokens=run_input.max_tokens,
     )
+    elapsed = monotonic() - progress.started_at
+    rendered = response.text.strip() or "[No response text returned.]"
     response_payload = to_json_payload(response)
     if _show_text(output_mode):
-        st.write(response.text)
+        _render_api_text_response(rendered)
+    if rendered == "[No response text returned.]":
+        progress.placeholder.warning(  # type: ignore[attr-defined]
+            f"No text returned after {elapsed:.1f}s."
+        )
+    else:
+        progress.placeholder.success(  # type: ignore[attr-defined]
+            f"Completed in {elapsed:.1f}s ({len(rendered)} chars)."
+        )
     if _show_json(output_mode):
         st.code(pretty_json(response_payload))
     _log_ui_call(
@@ -466,6 +551,7 @@ def _render_run(provider: ProviderName, output_mode: OutputMode) -> None:
     )
     if not submitted:
         return
+    progress: RunProgress | None = None
     try:
         prompt_text = _resolve_prompt(
             provider=provider,
@@ -482,12 +568,14 @@ def _render_run(provider: ProviderName, output_mode: OutputMode) -> None:
             model=run_input.model or None,
             stream=run_input.stream,
         )
+        progress = _render_run_progress(provider, run_input.model or "default")
         if run_input.stream:
             _render_run_stream_result(
                 provider=provider,
                 output_mode=output_mode,
                 prompt_text=prompt_text,
                 run_input=run_input,
+                progress=progress,
             )
         else:
             _render_run_non_stream_result(
@@ -495,8 +583,14 @@ def _render_run(provider: ProviderName, output_mode: OutputMode) -> None:
                 output_mode=output_mode,
                 prompt_text=prompt_text,
                 run_input=run_input,
+                progress=progress,
             )
     except LLMError as error:
+        if progress is not None:
+            elapsed = monotonic() - progress.started_at
+            progress.placeholder.error(  # type: ignore[attr-defined]
+                f"Request failed after {elapsed:.1f}s: {error.message}"
+            )
         st.error(error.message)
         _log_ui_call(
             provider=provider,
@@ -541,7 +635,9 @@ def _render_check(provider: ProviderName, output_mode: OutputMode) -> None:
             result = check_connection(provider)
             payload = to_json_payload(result)
             if _show_text(output_mode):
-                st.success(f"{provider}: {result.detail} ({result.latency_ms:.1f} ms)")
+                summary = f"{provider}: {result.detail} ({result.latency_ms:.1f} ms)"
+                st.success(summary)
+                _render_api_copy_block(summary)
             if _show_json(output_mode):
                 st.code(pretty_json(payload))
             _log_ui_call(
@@ -579,7 +675,13 @@ def render() -> None:
     st.title("Dynamic LLM API SDK Examples")
     st.caption(f"Version {get_app_version()}")
     _render_quote()
-    selected_page = st.sidebar.radio("Page", ("API", "Chat", "Logs"))
+    page_options = ("API", "Chat", "Logs")
+    selected_page = st.sidebar.radio(
+        "Page",
+        page_options,
+        index=page_options.index(get_selected_page("API")),
+        key="selected_page",
+    )
     st.sidebar.caption(f"Version {get_app_version()}")
     selected = get_selected_provider(PROVIDERS[0])
     selected_provider = st.sidebar.selectbox(

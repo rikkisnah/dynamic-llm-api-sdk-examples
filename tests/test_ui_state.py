@@ -22,6 +22,15 @@ def test_selected_chat_model_persists_per_provider(monkeypatch) -> None:  # type
     assert ui_state.get_selected_chat_model("openai", ["gpt-4o-mini", "gpt-5-mini"]) == "gpt-5-mini"
 
 
+def test_selected_page_persists(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    fake_st = _FakeStreamlit(session_state={})
+    monkeypatch.setattr(ui_state, "st", fake_st)
+
+    assert ui_state.get_selected_page("API") == "API"
+    ui_state.set_selected_page("Chat")
+    assert ui_state.get_selected_page("API") == "Chat"
+
+
 def test_chat_messages_are_scoped_and_clearable(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     fake_st = _FakeStreamlit(session_state={})
     monkeypatch.setattr(ui_state, "st", fake_st)

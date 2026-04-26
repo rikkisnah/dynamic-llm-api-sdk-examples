@@ -12,8 +12,11 @@ Requirements:
 - Install missing prerequisites: git, make, curl, Python 3.11+ (or current Python 3), and uv.
 - Copy .env.example to .env if .env does not exist.
 - Run make setup.
+- Run make help.
 - Run make check.
 - Run make providers.
+- Run make run-cli P=openai PROMPT="hello" (or any configured provider).
+- Start UI once with make run.
 - Report what was installed and final status.
 
 Constraints:
@@ -30,8 +33,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source "$HOME/.local/bin/env"
 cp -n .env.example .env
 make setup
+make help
 make check
 make providers
+make run-cli P=openai PROMPT="hello"
+make run
 ```
 
 ## Manual Setup (macOS)
@@ -42,6 +48,9 @@ xcode-select --install || true
 brew install git make python uv
 cp -n .env.example .env
 make setup
+make help
 make check
 make providers
+make run-cli P=openai PROMPT="hello"
+make run
 ```

@@ -15,6 +15,8 @@ Define capabilities once in `llm_examples.capabilities.CAPABILITIES`.
 - CLI parser is generated from this registry.
 - Streamlit renderers are keyed to this registry.
 - Tests enforce command-level and parameter-level parity.
+- Output mode parity is required for user calls (`txt` and `json`).
+- UI-only navigation pages (for example chat/logs) are allowed if capability parity remains unchanged.
 
 ## Consequences
 

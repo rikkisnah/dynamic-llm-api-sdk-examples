@@ -23,3 +23,4 @@ Use per-provider adapters that implement a shared `BaseClient` interface.
 
 - Vendor quirks are isolated to tier-2 modules.
 - Service and surface layers stay provider-agnostic.
+- Multimodal message normalization (for image attachments) is centralized inside provider adapters.

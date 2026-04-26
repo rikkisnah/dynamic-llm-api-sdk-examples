@@ -2,6 +2,9 @@
 
 Each script in this folder is self-contained and does **not** import `llm_examples`.
 
+These scripts are documentation-grade examples: when provider behavior changes in
+package adapters, keep the corresponding standalone example in sync.
+
 Run one example:
 
 ```bash

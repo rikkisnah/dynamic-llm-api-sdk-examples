@@ -7,8 +7,10 @@ For Codex/Claude prompt-based setup on Ubuntu/macOS, use root [INSTALL.md](../IN
 ```bash
 cp .env.example .env
 make setup
+make help
 make check
 make providers
+make run-cli P=openai PROMPT="hello"
 ```
 
 Fill `.env` with provider keys you plan to use.

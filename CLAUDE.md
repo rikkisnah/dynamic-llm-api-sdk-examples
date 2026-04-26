@@ -8,7 +8,7 @@ Any behavioral code change must update all relevant files in the same commit:
 
 - `README.md`
 - `CLAUDE.md` (and `AGENTS.md`, which must remain a symlink)
-- Any impacted ADR or usage doc
+- Any impacted ADR or usage doc (at minimum `docs/USAGE.md` and `docs/HOW-IT-WORKS.md`)
 - Keep root prompt docs current when workflow changes: `INSTALL.md`, `CREATE-PR.md`.
 
 ## Architecture Rule (Tiered)
@@ -36,7 +36,10 @@ CLI and UI must both consume `llm_examples.capabilities.CAPABILITIES`.
 - Keep chat UI conversation-first: keep history/composer primary and place advanced controls under collapsible settings.
 - Keep chat attachments in-composer (`+` on message box) for file/image flows, including paste support where Streamlit/browser provides it.
 - Keep chat web-research optional and provider-agnostic: inject summarized web sources in the prompt for all providers without breaking normal chat when web lookup fails.
-- Keep quote banner UX stable: top quote remains visible with a refresh action.
+- Keep assistant response UX readable and actionable: preserve markdown formatting, keep long replies scrollable, and expose copy-friendly raw text.
+- Keep API response UX aligned with chat for readability and copyability, with visible copy-ready text blocks in TXT mode.
+- Keep API `run` progress visibility aligned with chat (`calling`, `streaming/generating`, `completed` with elapsed time).
+- Keep quote banner UX stable: top quote remains visible with a refresh action and refresh must preserve current page context.
 - Keep version discoverability on both surfaces (`llm-examples --version` and visible UI version label).
 
 ## Provider Rule
@@ -59,6 +62,7 @@ CLI and UI must both consume `llm_examples.capabilities.CAPABILITIES`.
 - Keep coverage gate at 100%.
 - Any code or behavior change must be validated before handoff using relevant `make` targets.
 - For surface changes, verify both paths: at least one CLI command (`make providers` or `make run-cli ...`) and UI startup (`make run`).
+- For quote/banner changes, verify refresh behavior from both `Chat` and `Logs` pages and keep page context stable (no redirect to `API`).
 - For provider/parsing changes, validate every path: `make check`, plus `make test-llm-all` with the deterministic hello prompt flow.
 
 ## Build Rule

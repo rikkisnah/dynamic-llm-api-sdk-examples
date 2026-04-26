@@ -30,7 +30,18 @@ make help
 These files are prompt templates intended for Codex/Claude users:
 
 - [INSTALL.md](INSTALL.md): setup/install workflow for Ubuntu and macOS.
-- [CREATE-PR.md](CREATE-PR.md): validate, commit, and push workflow on `main`.
+- [CREATE-PR.md](CREATE-PR.md): docs-sync + validate + commit + push workflow on `main`.
+
+## Documentation Sync Contract
+
+When behavior changes, keep these docs aligned in the same commit:
+
+- `README.md`
+- `CLAUDE.md` (`AGENTS.md` symlink)
+- `docs/USAGE.md`
+- `docs/HOW-IT-WORKS.md`
+- `INSTALL.md`
+- `CREATE-PR.md`
 
 ## Make Targets
 
@@ -93,16 +104,21 @@ UI defaults:
 - Dark theme is always enabled.
 - Version is shown in the UI header and sidebar.
 - A single-line quote banner is shown at the top of the page (famous/funny/Bible/Hindu-epic rotation) with a `Refresh quote` icon control.
+- Refreshing the quote keeps the current page selection (`API`/`Chat`/`Logs`) instead of jumping surfaces.
 - A sidebar call log records all Streamlit-triggered provider calls (start/success/error).
 - A visible `Output format` toggle (`TXT` or `JSON`) lets every UI call render in either mode.
 - Sidebar has a `Page` switch (`API` / `Chat` / `Logs`).
 - Run form model is chosen from the provider model list (no manual model text entry).
 - Run form keeps recent prompts with `Saved prompts` selector and `Clear saved prompts`.
+- API `TXT` outputs now include visible copy-ready blocks (with one-click copy) across `providers`, `list-models`, `run`, and `check`.
+- API `run` responses follow chat-style rendering: markdown display and long-response scrolling.
+- API `run` now shows explicit progress states (`calling`, `streaming/generating`, `completed`) with elapsed time.
 - Chat page keeps memory per `provider + model` thread, with explicit `Clear chat history`.
 - Chat keeps recent prompts with `Saved prompts` selector, `Send saved prompt`, and `Clear saved prompts`.
 - Chat is conversation-first (ChatGPT-style): history and composer stay primary, while prompt/file/stream controls stay in collapsed `Chat settings`.
 - Chat settings include a `Web research` toggle that fetches DuckDuckGo + Wikipedia sources and injects summarized references into the current turn (no MCP dependency).
-- Chat replies are rendered as wrapped, copyable text blocks.
+- Chat replies render with markdown formatting, and long replies are shown in a bounded scrollable panel.
+- Every assistant reply includes a `Copy response` section with raw text for reliable copy/paste.
 - Chat now shows explicit turn progress states (`calling`, `streaming/generating`, `completed`) with elapsed time so long-running calls are visibly active.
 - Use the chat composer `+` button to attach files/images per message (and paste images where browser clipboard upload is supported).
 - Attached text files are injected into prompt context for that turn.

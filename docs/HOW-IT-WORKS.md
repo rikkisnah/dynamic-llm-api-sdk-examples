@@ -20,6 +20,7 @@ UI and CLI only call `llm_examples.services`.
 5. Provider adapter calls native SDK (or documented fallback).
 6. Provider response is normalized into `ChatResponse`.
 7. Surface renders text and metadata.
+8. Chat assistant rendering keeps markdown formatting, enables scroll for long replies, and exposes raw-text copy blocks.
 
 ## Chat Attachments and Multimodal Flow
 
@@ -63,3 +64,16 @@ UI shows concise `st.error(...)` messages.
 - CLI parser is generated from capabilities.
 - Streamlit UI renderers are keyed by capabilities.
 - Parity tests assert every capability and parameter exists in both surfaces.
+- Streamlit page/provider/output selections are persisted in session state across reruns.
+- API `run` and chat use aligned response UX conventions (markdown rendering, long-response scrolling, and copy-friendly raw text).
+- API `run` and chat both expose request progress states during provider execution.
+
+## Documentation Parity
+
+Behavior changes are not complete until docs are synchronized in the same commit.
+
+- `README.md`
+- `CLAUDE.md` / `AGENTS.md`
+- `docs/USAGE.md`
+- `INSTALL.md`
+- `CREATE-PR.md`
