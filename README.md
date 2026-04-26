@@ -101,10 +101,13 @@ UI defaults:
 - Chat page keeps memory per `provider + model` thread, with explicit `Clear chat history`.
 - Chat keeps recent prompts with `Saved prompts` selector, `Send saved prompt`, and `Clear saved prompts`.
 - Chat is conversation-first (ChatGPT-style): history and composer stay primary, while prompt/file/stream controls stay in collapsed `Chat settings`.
+- Chat settings include a `Web research` toggle that fetches DuckDuckGo + Wikipedia sources and injects summarized references into the current turn (no MCP dependency).
 - Chat replies are rendered as wrapped, copyable text blocks.
+- Chat now shows explicit turn progress states (`calling`, `streaming/generating`, `completed`) with elapsed time so long-running calls are visibly active.
 - Use the chat composer `+` button to attach files/images per message (and paste images where browser clipboard upload is supported).
 - Attached text files are injected into prompt context for that turn.
-- Attached images/binary files are logged as attachment metadata notes (this normalized API surface remains text-only).
+- Attached images are forwarded to provider multimodal APIs for OpenAI, Claude, Gemini, DeepSeek, Qwen, and Z.ai (model support still depends on the selected model).
+- Non-image binary files remain metadata-only notes.
 
 ## Commands
 
@@ -116,6 +119,8 @@ UI defaults:
 | `check` | `make check-conn P=<provider>` | `Check credentials` action |
 
 Every Make API target supports `OUT=txt|json` (`txt` default). JSON wrappers remain available (`make providers-json`, `make list-json`, `make run-json`, `make check-conn-json`) and generic passthrough is available via `make cli ARGS='...'`.
+
+Web research invocation is UI-chat only and provider-agnostic: the app fetches sources itself, then sends summarized context to the selected provider in the same prompt.
 
 ## Env Vars
 

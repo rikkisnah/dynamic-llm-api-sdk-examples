@@ -10,6 +10,7 @@ from llm_examples.domain_types import (
     ChatRequest,
     ChatResponse,
     CheckResult,
+    ImageAttachment,
     LLMError,
     ModelInfo,
     ProviderName,
@@ -40,6 +41,7 @@ def run_prompt(
     model: str | None = None,
     system: str | None = None,
     max_tokens: int = 512,
+    image_attachments: tuple[ImageAttachment, ...] = (),
 ) -> ChatResponse:
     """Run one-shot prompt and normalize response metadata."""
     client = get_client(provider)
@@ -51,6 +53,7 @@ def run_prompt(
         system=system,
         max_tokens=max_tokens,
         stream=False,
+        image_attachments=image_attachments,
     )
     started = time.perf_counter()
     try:
@@ -84,6 +87,7 @@ def stream_prompt(
     model: str | None = None,
     system: str | None = None,
     max_tokens: int = 512,
+    image_attachments: tuple[ImageAttachment, ...] = (),
 ) -> StreamResult:
     """Run streaming prompt and expose whether stream is simulated."""
     client = get_client(provider)
@@ -95,6 +99,7 @@ def stream_prompt(
         system=system,
         max_tokens=max_tokens,
         stream=True,
+        image_attachments=image_attachments,
     )
     try:
         chunks = client.stream(request)

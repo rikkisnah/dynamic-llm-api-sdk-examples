@@ -38,6 +38,16 @@ class ChatRequest:
     system: str | None = None
     max_tokens: int = 512
     stream: bool = False
+    image_attachments: tuple[ImageAttachment, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ImageAttachment:
+    """Image payload forwarded to provider multimodal APIs."""
+
+    name: str
+    mime_type: str
+    data: bytes
 
 
 @dataclass(frozen=True, slots=True)

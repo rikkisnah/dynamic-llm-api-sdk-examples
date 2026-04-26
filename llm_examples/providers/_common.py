@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -12,6 +13,7 @@ from llm_examples.domain_types import (
     ChatRequest,
     ChatResponse,
     CheckResult,
+    ImageAttachment,
     LLMError,
     ModelInfo,
     ProviderName,
@@ -166,6 +168,95 @@ def text_from_openai_stream_event(event: object) -> str:
     if isinstance(delta, dict):
         content = delta.get("content")
     return text_from_content(content)
+
+
+def _image_data_base64(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def _openai_compatible_user_content(
+    *, prompt: str, image_attachments: tuple[ImageAttachment, ...]
+) -> object:
+    if not image_attachments:
+        return prompt
+    items: list[dict[str, object]] = [{"type": "text", "text": prompt}]
+    for image in image_attachments:
+        items.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": (
+                        f"data:{image.mime_type};base64,{_image_data_base64(image.data)}"
+                    )
+                },
+            }
+        )
+    return items
+
+
+def openai_compatible_messages_for_prompt(
+    *,
+    system: str | None,
+    prompt: str,
+    image_attachments: tuple[ImageAttachment, ...] = (),
+) -> list[dict[str, object]]:
+    """Build messages payload for OpenAI-compatible chat APIs."""
+    messages: list[dict[str, object]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append(
+        {
+            "role": "user",
+            "content": _openai_compatible_user_content(
+                prompt=prompt, image_attachments=image_attachments
+            ),
+        }
+    )
+    return messages
+
+
+def openai_compatible_messages(req: ChatRequest) -> list[dict[str, object]]:
+    return openai_compatible_messages_for_prompt(
+        system=req.system,
+        prompt=req.prompt,
+        image_attachments=tuple(req.image_attachments),
+    )
+
+
+def anthropic_messages(req: ChatRequest) -> list[dict[str, object]]:
+    """Build messages payload for Anthropic `messages.create`."""
+    if not req.image_attachments:
+        return [{"role": "user", "content": req.prompt}]
+    content: list[dict[str, object]] = [{"type": "text", "text": req.prompt}]
+    for image in req.image_attachments:
+        content.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image.mime_type,
+                    "data": _image_data_base64(image.data),
+                },
+            }
+        )
+    return [{"role": "user", "content": content}]
+
+
+def gemini_contents(req: ChatRequest) -> object:
+    """Build `contents` payload for Gemini generate_content APIs."""
+    if not req.image_attachments:
+        return req.prompt
+    parts: list[dict[str, object]] = [{"text": req.prompt}]
+    for image in req.image_attachments:
+        parts.append(
+            {
+                "inline_data": {
+                    "mime_type": image.mime_type,
+                    "data": _image_data_base64(image.data),
+                }
+            }
+        )
+    return [{"role": "user", "parts": parts}]
 
 
 class ProviderClientBase(BaseClient, ABC):

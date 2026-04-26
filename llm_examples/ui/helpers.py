@@ -8,7 +8,13 @@ from dataclasses import asdict, is_dataclass
 from html import escape
 from typing import Protocol, TypeGuard
 
-from llm_examples.domain_types import ChatResponse, CheckResult, LLMError, ModelInfo
+from llm_examples.domain_types import (
+    ChatResponse,
+    CheckResult,
+    ImageAttachment,
+    LLMError,
+    ModelInfo,
+)
 
 
 def to_json_payload(value: object) -> Mapping[str, object]:
@@ -97,6 +103,20 @@ def is_image_attachment(file: UploadedFileLike) -> bool:
     return _is_image_attachment(file)
 
 
+def build_image_attachments(
+    uploaded_files: Sequence[UploadedFileLike],
+) -> tuple[ImageAttachment, ...]:
+    """Build image payloads for multimodal provider requests."""
+    rows: list[ImageAttachment] = []
+    for file in uploaded_files:
+        if not _is_image_attachment(file):
+            continue
+        file_name = file.name.strip() or "uploaded-image"
+        mime = (file.type or "").strip().lower() or "image/png"
+        rows.append(ImageAttachment(name=file_name, mime_type=mime, data=file.getvalue()))
+    return tuple(rows)
+
+
 def build_attachment_context(uploaded_files: Sequence[UploadedFileLike]) -> tuple[str, list[str]]:
     """Build textual context summary from uploaded files."""
     if not uploaded_files:
@@ -118,8 +138,8 @@ def build_attachment_context(uploaded_files: Sequence[UploadedFileLike]) -> tupl
             continue
         if _is_image_attachment(file):
             sections.append(
-                f"Image '{file_name}' uploaded ({mime}, {len(data)} bytes). "
-                "This chat API currently supports text prompts only."
+                f"Image '{file_name}' attached ({mime}, {len(data)} bytes). "
+                "Image data is forwarded to multimodal-capable models."
             )
             continue
         sections.append(

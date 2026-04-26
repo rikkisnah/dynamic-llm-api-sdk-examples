@@ -6,14 +6,17 @@ from typing import Any
 
 import pytest
 
-from llm_examples.domain_types import ChatRequest, LLMError
+from llm_examples.domain_types import ChatRequest, ImageAttachment, LLMError
 from llm_examples.providers._common import (
     text_from_content,
     text_from_openai_response,
     text_from_openai_stream_event,
 )
-from llm_examples.providers.gemini_provider import _extract_gemini_text
+from llm_examples.providers.claude_provider import ClaudeProvider
+from llm_examples.providers.deepseek_provider import DeepSeekProvider
+from llm_examples.providers.gemini_provider import GeminiProvider, _extract_gemini_text
 from llm_examples.providers.openai_provider import OpenAIProvider
+from llm_examples.providers.qwen_provider import QwenProvider
 from llm_examples.providers.zai_provider import ZAIProvider
 
 
@@ -21,6 +24,10 @@ class _Obj:
     def __init__(self, **kwargs: Any) -> None:
         for key, value in kwargs.items():
             setattr(self, key, value)
+
+
+def _sample_image() -> ImageAttachment:
+    return ImageAttachment(name="pic.png", mime_type="image/png", data=b"\x89PNG")
 
 
 def test_text_from_content_handles_structured_blocks() -> None:
@@ -79,6 +86,41 @@ def test_openai_chat_retries_and_succeeds_on_empty_token_limit(
     result = provider._chat_impl(request)
     assert result.text == "Hello after retry"
     assert calls == [512, 2048]
+
+
+def test_openai_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OpenAIProvider()
+    captured: dict[str, object] = {}
+
+    def fake_create(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return _Obj(
+            choices=[_Obj(message=_Obj(content="ok"), finish_reason="stop")],
+            usage=None,
+            id="id-1",
+        )
+
+    client = _Obj(chat=_Obj(completions=_Obj(create=fake_create)))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+    request = ChatRequest(
+        provider="openai",
+        model=provider.default_model,
+        prompt="Describe this image",
+        image_attachments=(_sample_image(),),
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "ok"
+    messages = captured.get("messages")
+    assert isinstance(messages, list)
+    content = messages[-1].get("content") if isinstance(messages[-1], dict) else None
+    assert isinstance(content, list)
+    image_block = content[1] if len(content) > 1 else None
+    assert isinstance(image_block, dict)
+    image_url = image_block.get("image_url")
+    assert isinstance(image_url, dict)
+    url = image_url.get("url")
+    assert isinstance(url, str)
+    assert url.startswith("data:image/png;base64,")
 
 
 def test_openai_chat_raises_on_empty_token_limited_reply(
@@ -225,6 +267,122 @@ def test_zai_chat_extracts_structured_content(monkeypatch: pytest.MonkeyPatch) -
     assert result.text == "Hello world"
 
 
+def test_claude_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = ClaudeProvider()
+    captured: dict[str, object] = {}
+
+    def fake_create(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return _Obj(content=[_Obj(type="text", text="ok")], usage=None, id="id-1")
+
+    client = _Obj(messages=_Obj(create=fake_create))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+    request = ChatRequest(
+        provider="claude",
+        model=provider.default_model,
+        prompt="Describe this image",
+        image_attachments=(_sample_image(),),
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "ok"
+    messages = captured.get("messages")
+    assert isinstance(messages, list)
+    first = messages[0]
+    assert isinstance(first, dict)
+    content = first.get("content")
+    assert isinstance(content, list)
+    image_block = content[1] if len(content) > 1 else None
+    assert isinstance(image_block, dict)
+    assert image_block.get("type") == "image"
+    source = image_block.get("source")
+    assert isinstance(source, dict)
+    assert source.get("type") == "base64"
+    assert source.get("media_type") == "image/png"
+
+
+def test_gemini_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = GeminiProvider()
+    captured: dict[str, object] = {}
+
+    def fake_generate_content(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return _Obj(text="ok", usage_metadata=None)
+
+    client = _Obj(models=_Obj(generate_content=fake_generate_content))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+    request = ChatRequest(
+        provider="gemini",
+        model=provider.default_model,
+        prompt="Describe this image",
+        image_attachments=(_sample_image(),),
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "ok"
+    contents = captured.get("contents")
+    assert isinstance(contents, list)
+    first = contents[0]
+    assert isinstance(first, dict)
+    parts = first.get("parts")
+    assert isinstance(parts, list)
+    image_part = parts[1] if len(parts) > 1 else None
+    assert isinstance(image_part, dict)
+    inline = image_part.get("inline_data")
+    assert isinstance(inline, dict)
+    assert inline.get("mime_type") == "image/png"
+
+
+def test_deepseek_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = DeepSeekProvider()
+    captured: dict[str, object] = {}
+
+    def fake_create(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return _Obj(choices=[_Obj(message=_Obj(content="ok"))], usage=None, id="id-1")
+
+    client = _Obj(chat=_Obj(completions=_Obj(create=fake_create)))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+    request = ChatRequest(
+        provider="deepseek",
+        model=provider.default_model,
+        prompt="Describe this image",
+        image_attachments=(_sample_image(),),
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "ok"
+    messages = captured.get("messages")
+    assert isinstance(messages, list)
+    content = messages[-1].get("content") if isinstance(messages[-1], dict) else None
+    assert isinstance(content, list)
+    assert isinstance(content[1], dict)
+    assert content[1].get("type") == "image_url"
+
+
+def test_qwen_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = QwenProvider()
+    captured: dict[str, object] = {}
+
+    def fake_create(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return _Obj(choices=[_Obj(message=_Obj(content="ok"))], usage=None, id="id-1")
+
+    client = _Obj(chat=_Obj(completions=_Obj(create=fake_create)))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+    request = ChatRequest(
+        provider="qwen",
+        model=provider.default_model,
+        prompt="Describe this image",
+        image_attachments=(_sample_image(),),
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "ok"
+    messages = captured.get("messages")
+    assert isinstance(messages, list)
+    content = messages[-1].get("content") if isinstance(messages[-1], dict) else None
+    assert isinstance(content, list)
+    assert isinstance(content[1], dict)
+    assert content[1].get("type") == "image_url"
+
+
 def test_zai_chat_retries_and_succeeds_http(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = ZAIProvider()
     monkeypatch.setattr(provider, "_sdk_client", lambda: None)
@@ -273,6 +431,36 @@ def test_zai_chat_retries_and_succeeds_http(monkeypatch: pytest.MonkeyPatch) -> 
     result = provider._chat_impl(request)
     assert result.text == "Hello from HTTP retry"
     assert calls == [32, 512]
+
+
+def test_zai_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = ZAIProvider()
+    captured: dict[str, object] = {}
+
+    def fake_create(**kwargs: Any) -> object:
+        captured.update(kwargs)
+        return _Obj(
+            choices=[_Obj(message=_Obj(content="ok"), finish_reason="stop")],
+            usage=None,
+            id="id-1",
+        )
+
+    client = _Obj(chat=_Obj(completions=_Obj(create=fake_create)))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+    request = ChatRequest(
+        provider="zai",
+        model=provider.default_model,
+        prompt="Describe this image",
+        image_attachments=(_sample_image(),),
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "ok"
+    messages = captured.get("messages")
+    assert isinstance(messages, list)
+    content = messages[-1].get("content") if isinstance(messages[-1], dict) else None
+    assert isinstance(content, list)
+    assert isinstance(content[1], dict)
+    assert content[1].get("type") == "image_url"
 
 
 def test_zai_chat_auto_continues_when_non_empty_token_limited_http(

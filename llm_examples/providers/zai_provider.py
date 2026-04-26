@@ -22,6 +22,7 @@ from llm_examples.providers._common import (
     attr,
     model_info_list,
     normalize_usage,
+    openai_compatible_messages_for_prompt,
     text_from_content,
     text_from_openai_response,
     text_from_openai_stream_event,
@@ -234,12 +235,13 @@ class ZAIProvider(ProviderClientBase):
         if not callable(create_fn):
             return None
 
-        def sdk_messages_for_prompt(prompt: str) -> list[dict[str, str]]:
-            messages: list[dict[str, str]] = []
-            if req.system:
-                messages.append({"role": "system", "content": req.system})
-            messages.append({"role": "user", "content": prompt})
-            return messages
+        def sdk_messages_for_prompt(prompt: str) -> list[dict[str, object]]:
+            include_images = tuple(req.image_attachments) if prompt == req.prompt else ()
+            return openai_compatible_messages_for_prompt(
+                system=req.system,
+                prompt=prompt,
+                image_attachments=include_images,
+            )
 
         def sdk_chat_once(prompt: str) -> tuple[str, object, Usage | None, str | None]:
             messages = sdk_messages_for_prompt(prompt)
@@ -292,11 +294,13 @@ class ZAIProvider(ProviderClientBase):
     def _chat_impl_with_http(self, req: ChatRequest) -> ChatResponse:
         with self._http_client() as http:
 
-            def http_messages_for_prompt(prompt: str) -> list[dict[str, str]]:
-                messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
-                if req.system:
-                    messages.insert(0, {"role": "system", "content": req.system})
-                return messages
+            def http_messages_for_prompt(prompt: str) -> list[dict[str, object]]:
+                include_images = tuple(req.image_attachments) if prompt == req.prompt else ()
+                return openai_compatible_messages_for_prompt(
+                    system=req.system,
+                    prompt=prompt,
+                    image_attachments=include_images,
+                )
 
             def http_chat(
                 prompt: str, max_tokens: int
@@ -360,12 +364,13 @@ class ZAIProvider(ProviderClientBase):
 
         self.stream_is_simulated = False
 
-        def stream_messages_for_prompt(prompt: str) -> list[dict[str, str]]:
-            messages: list[dict[str, str]] = []
-            if req.system:
-                messages.append({"role": "system", "content": req.system})
-            messages.append({"role": "user", "content": prompt})
-            return messages
+        def stream_messages_for_prompt(prompt: str) -> list[dict[str, object]]:
+            include_images = tuple(req.image_attachments) if prompt == req.prompt else ()
+            return openai_compatible_messages_for_prompt(
+                system=req.system,
+                prompt=prompt,
+                image_attachments=include_images,
+            )
 
         def stream_once(prompt: str) -> tuple[list[str], object]:
             stream = create_fn(

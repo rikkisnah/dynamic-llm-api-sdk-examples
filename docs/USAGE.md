@@ -59,8 +59,22 @@ make check-conn P=openai
 make run PORT=8501
 ```
 
+Chat page attachments:
+
+1. Use `+` in the chat composer to attach files/images (or paste images where supported by browser/Streamlit).
+2. Text files are injected into prompt context.
+3. Images are forwarded as multimodal inputs to provider APIs (model must support vision).
+4. Enable `Web research` in Chat settings to fetch live sources and include references in the current chat turn.
+5. Web research is app-side retrieval (DuckDuckGo + Wikipedia), not MCP.
+6. Assistant turns show explicit progress states while waiting on provider responses.
+
 In the sidebar:
 
 1. Select provider.
 2. Select capability (`providers`, `list-models`, `run`, `check`).
 3. Use the rendered controls from the same capability registry as CLI.
+
+Web research failure behavior:
+
+1. Chat warns in UI if source lookups fail.
+2. Prompt still runs against your selected model without web context.

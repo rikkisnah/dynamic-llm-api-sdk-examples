@@ -19,6 +19,7 @@ from llm_examples.providers._common import (
     attr,
     model_info_list,
     normalize_usage,
+    openai_compatible_messages,
     text_from_openai_response,
     text_from_openai_stream_event,
 )
@@ -73,10 +74,7 @@ class DeepSeekProvider(ProviderClientBase):
         if not callable(create_fn):
             raise RuntimeError("DeepSeek OpenAI-compatible chat API unavailable.")
 
-        messages: list[dict[str, str]] = []
-        if req.system:
-            messages.append({"role": "system", "content": req.system})
-        messages.append({"role": "user", "content": req.prompt})
+        messages = openai_compatible_messages(req)
 
         response = create_fn(
             model=req.model, messages=messages, max_tokens=req.max_tokens, stream=False
@@ -98,10 +96,7 @@ class DeepSeekProvider(ProviderClientBase):
         if not callable(create_fn):
             return self._simulate_stream(req)
 
-        messages: list[dict[str, str]] = []
-        if req.system:
-            messages.append({"role": "system", "content": req.system})
-        messages.append({"role": "user", "content": req.prompt})
+        messages = openai_compatible_messages(req)
 
         self.stream_is_simulated = False
         stream_obj = create_fn(

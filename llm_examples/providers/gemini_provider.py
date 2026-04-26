@@ -16,6 +16,7 @@ from llm_examples.domain_types import (
 from llm_examples.providers._common import (
     ProviderClientBase,
     attr,
+    gemini_contents,
     model_info_list,
     normalize_usage,
     text_from_content,
@@ -90,7 +91,7 @@ class GeminiProvider(ProviderClientBase):
         config: dict[str, object] = {"max_output_tokens": req.max_tokens}
         if req.system:
             config["system_instruction"] = req.system
-        response = generate_fn(model=req.model, contents=req.prompt, config=config)
+        response = generate_fn(model=req.model, contents=gemini_contents(req), config=config)
         return ChatResponse(
             provider=req.provider,
             model=req.model,
@@ -115,7 +116,7 @@ class GeminiProvider(ProviderClientBase):
 
         self.stream_is_simulated = False
         pieces: list[str] = []
-        stream = generate_stream_fn(model=req.model, contents=req.prompt, config=config)
+        stream = generate_stream_fn(model=req.model, contents=gemini_contents(req), config=config)
         for item in stream:
             piece = _extract_gemini_text(item)
             if piece:

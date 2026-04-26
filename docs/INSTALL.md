@@ -19,3 +19,7 @@ Fill `.env` with provider keys you plan to use.
 make run
 make run-cli P=openai PROMPT="hello"
 ```
+
+Optional runtime note:
+
+- UI chat `Web research` uses outbound HTTPS calls to `api.duckduckgo.com` and `en.wikipedia.org`.

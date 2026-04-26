@@ -14,11 +14,31 @@ UI and CLI only call `llm_examples.services`.
 ## Request Lifecycle
 
 1. CLI or UI collects provider/model/prompt.
-2. Service layer builds `ChatRequest`.
-3. Registry resolves provider adapter.
-4. Provider adapter calls native SDK (or documented fallback).
-5. Provider response is normalized into `ChatResponse`.
-6. Surface renders text and metadata.
+2. UI chat can optionally add attachment context and web-research context for the turn.
+3. Service layer builds `ChatRequest` (including optional `image_attachments`).
+4. Registry resolves provider adapter.
+5. Provider adapter calls native SDK (or documented fallback).
+6. Provider response is normalized into `ChatResponse`.
+7. Surface renders text and metadata.
+
+## Chat Attachments and Multimodal Flow
+
+1. Chat composer accepts uploaded files/images (`+`) and pasted images where browser/Streamlit supports it.
+2. Text files are normalized into prompt context text.
+3. Images are normalized into `ImageAttachment` objects.
+4. Provider adapters map those attachments to provider-native multimodal payloads:
+   - OpenAI-compatible (OpenAI, DeepSeek, Qwen, Z.ai)
+   - Anthropic blocks (Claude)
+   - Gemini `inline_data` parts
+5. If a selected model does not support vision, provider adapters return normalized errors.
+
+## Web Research Flow (UI Chat)
+
+1. When `Web research` is enabled in Chat settings, UI fetches best-effort sources from DuckDuckGo and Wikipedia.
+2. Sources are deduplicated and summarized into a compact prompt context block.
+3. The context block is injected into the chat turn before provider dispatch.
+4. This design is provider-agnostic and does not require MCP.
+5. If web retrieval fails, chat logs/warns and proceeds without web context.
 
 ## Error Model
 

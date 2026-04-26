@@ -35,6 +35,7 @@ CLI and UI must both consume `llm_examples.capabilities.CAPABILITIES`.
 - For UI prompt-entry surfaces (`run` and chat), preserve recent-prompt memory with explicit choose/clear controls.
 - Keep chat UI conversation-first: keep history/composer primary and place advanced controls under collapsible settings.
 - Keep chat attachments in-composer (`+` on message box) for file/image flows, including paste support where Streamlit/browser provides it.
+- Keep chat web-research optional and provider-agnostic: inject summarized web sources in the prompt for all providers without breaking normal chat when web lookup fails.
 - Keep quote banner UX stable: top quote remains visible with a refresh action.
 - Keep version discoverability on both surfaces (`llm-examples --version` and visible UI version label).
 
@@ -48,6 +49,7 @@ CLI and UI must both consume `llm_examples.capabilities.CAPABILITIES`.
 - Provider-specific normalization belongs in provider modules.
 - Keep provider hardening for empty token-limit replies (e.g., reasoning-heavy models) inside provider adapters, with clear actionable errors after retries.
 - Keep Z.ai continuation hardening in provider adapters: when non-empty output hits token-limit finish, auto-continue and append seamlessly.
+- Keep multimodal image forwarding implemented in provider adapters (OpenAI/Claude/Gemini/DeepSeek/Qwen/Z.ai), with clear errors when selected models do not support vision.
 - Include one standalone script in `examples/` per provider.
 
 ## Testing Rule

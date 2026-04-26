@@ -16,6 +16,7 @@ from llm_examples.domain_types import (
 )
 from llm_examples.providers._common import (
     ProviderClientBase,
+    anthropic_messages,
     attr,
     model_info_list,
     normalize_usage,
@@ -89,7 +90,7 @@ class ClaudeProvider(ProviderClientBase):
         kwargs: dict[str, object] = {
             "model": req.model,
             "max_tokens": req.max_tokens,
-            "messages": [{"role": "user", "content": req.prompt}],
+            "messages": anthropic_messages(req),
         }
         if req.system:
             kwargs["system"] = req.system
@@ -113,7 +114,7 @@ class ClaudeProvider(ProviderClientBase):
         kwargs: dict[str, object] = {
             "model": req.model,
             "max_tokens": req.max_tokens,
-            "messages": [{"role": "user", "content": req.prompt}],
+            "messages": anthropic_messages(req),
         }
         if req.system:
             kwargs["system"] = req.system
