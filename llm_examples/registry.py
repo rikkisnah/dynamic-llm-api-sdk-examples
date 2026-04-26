@@ -1,0 +1,33 @@
+"""Tier 3: Provider registry and client dispatch."""
+
+from __future__ import annotations
+
+from typing import Mapping
+
+from llm_examples.domain_types import ProviderName
+from llm_examples.llm_client import BaseClient
+from llm_examples.providers import (
+    ClaudeProvider,
+    DeepSeekProvider,
+    GeminiProvider,
+    OpenAIProvider,
+    QwenProvider,
+    ZAIProvider,
+)
+
+PROVIDERS: tuple[ProviderName, ...] = ("openai", "claude", "gemini", "deepseek", "qwen", "zai")
+
+_CLIENTS: Mapping[ProviderName, type[BaseClient]] = {
+    "openai": OpenAIProvider,
+    "claude": ClaudeProvider,
+    "gemini": GeminiProvider,
+    "deepseek": DeepSeekProvider,
+    "qwen": QwenProvider,
+    "zai": ZAIProvider,
+}
+
+
+def get_client(provider: ProviderName) -> BaseClient:
+    """Build a provider adapter by name."""
+    client_cls = _CLIENTS[provider]
+    return client_cls()

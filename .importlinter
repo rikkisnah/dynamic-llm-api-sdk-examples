@@ -1,0 +1,16 @@
+[importlinter]
+root_package = llm_examples
+
+[contract:tiered]
+name = Tier Rule
+type = layers
+layers =
+    llm_examples.domain_types
+    llm_examples.config
+    llm_examples.capabilities
+    llm_examples.llm_client
+    llm_examples.providers
+    llm_examples.registry
+    llm_examples.services
+    llm_examples.cli
+    llm_examples.ui
