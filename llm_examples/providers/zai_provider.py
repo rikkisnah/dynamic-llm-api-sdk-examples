@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import cast
 
 import httpx
@@ -31,6 +31,8 @@ DEFAULT_MODEL = "glm-4.6"
 FALLBACK_MODELS = ("glm-4.6", "glm-4.5-air")
 RETRY_MIN_MAX_TOKENS = 512
 RETRY_MAX_MAX_TOKENS = 2048
+CONTINUATION_MAX_ROUNDS = 3
+CONTINUATION_CONTEXT_CHARS = 4_000
 
 
 def _is_token_limit_finish(finish_reason: object) -> bool:
@@ -58,6 +60,71 @@ def _is_empty_due_token_limit(*, text: str, finish_reason: object) -> bool:
 def _retry_max_tokens(max_tokens: int) -> int:
     doubled = max_tokens * 2
     return min(RETRY_MAX_MAX_TOKENS, max(RETRY_MIN_MAX_TOKENS, doubled))
+
+
+def _build_continuation_prompt(*, original_prompt: str, partial_answer: str) -> str:
+    answer_tail = partial_answer[-CONTINUATION_CONTEXT_CHARS:]
+    return (
+        "Continue the same answer from exactly where it stopped.\n"
+        "Do not restart, do not summarize, and do not repeat prior text.\n\n"
+        f"Original user prompt:\n{original_prompt}\n\n"
+        f"Answer so far (tail):\n{answer_tail}\n\n"
+        "Continuation:"
+    )
+
+
+def _merge_without_overlap(base: str, addition: str) -> str:
+    if not base:
+        return addition
+    if not addition:
+        return base
+    max_overlap = min(len(base), len(addition), 200)
+    for overlap in range(max_overlap, 19, -1):
+        if base.endswith(addition[:overlap]):
+            return base + addition[overlap:]
+    return base + addition
+
+
+def _extract_stream_finish_reason(event: object) -> object:
+    choices = attr(event, "choices")
+    if isinstance(event, dict):
+        choices = event.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    first = choices[0]
+    reason = attr(first, "finish_reason")
+    if isinstance(first, dict):
+        reason = first.get("finish_reason")
+    return reason
+
+
+def _continue_non_empty_token_limited_text(
+    *,
+    req: ChatRequest,
+    text: str,
+    finish_reason: object,
+    usage: Usage | None,
+    raw_id: str | None,
+    call_once: Callable[[str], tuple[str, object, Usage | None, str | None]],
+) -> tuple[str, object, Usage | None, str | None]:
+    continuation_round = 0
+    while (
+        _is_token_limit_finish(finish_reason)
+        and text.strip()
+        and continuation_round < CONTINUATION_MAX_ROUNDS
+    ):
+        continuation_round += 1
+        continuation_prompt = _build_continuation_prompt(
+            original_prompt=req.prompt,
+            partial_answer=text,
+        )
+        next_text, finish_reason, next_usage, next_raw_id = call_once(continuation_prompt)
+        text = _merge_without_overlap(text, next_text)
+        if next_usage is not None:
+            usage = next_usage
+        if next_raw_id is not None:
+            raw_id = next_raw_id
+    return text, finish_reason, usage, raw_id
 
 
 def _extract_sdk_chat_fields(response: object) -> tuple[str, object, Usage | None, str | None]:
@@ -155,59 +222,88 @@ class ZAIProvider(ProviderClientBase):
     def _chat_impl(self, req: ChatRequest) -> ChatResponse:
         client = self._sdk_client()
         if client is not None:
-            chat_obj = attr(client, "chat")
-            completions_obj = attr(chat_obj, "completions") if chat_obj is not None else None
-            create_fn = attr(completions_obj, "create")
-            if callable(create_fn):
-                sdk_messages: list[dict[str, str]] = []
-                if req.system:
-                    sdk_messages.append({"role": "system", "content": req.system})
-                sdk_messages.append({"role": "user", "content": req.prompt})
-                response = create_fn(
-                    model=req.model,
-                    messages=sdk_messages,
-                    max_tokens=req.max_tokens,
-                    stream=False,
-                )
-                text, finish_reason, usage, raw_id = _extract_sdk_chat_fields(response)
-                tokens_used = req.max_tokens
-                if _is_empty_due_token_limit(text=text, finish_reason=finish_reason):
-                    retry_tokens = _retry_max_tokens(req.max_tokens)
-                    if retry_tokens > req.max_tokens:
-                        retry_response = create_fn(
-                            model=req.model,
-                            messages=sdk_messages,
-                            max_tokens=retry_tokens,
-                            stream=False,
-                        )
-                        text, finish_reason, usage, raw_id = _extract_sdk_chat_fields(
-                            retry_response
-                        )
-                        tokens_used = retry_tokens
-                _raise_if_empty_due_token_limit(
-                    text=text,
-                    finish_reason=finish_reason,
-                    max_tokens=tokens_used,
-                    model=req.model,
-                )
-                return ChatResponse(
-                    provider=req.provider,
-                    model=req.model,
-                    text=text,
-                    latency_ms=0.0,
-                    usage=usage,
-                    raw_id=raw_id,
-                    stream_simulated=False,
-                )
+            sdk_response = self._chat_impl_with_sdk(req=req, client=client)
+            if sdk_response is not None:
+                return sdk_response
+        return self._chat_impl_with_http(req)
 
-        with self._http_client() as http:
-            http_messages: list[dict[str, str]] = [{"role": "user", "content": req.prompt}]
+    def _chat_impl_with_sdk(self, *, req: ChatRequest, client: object) -> ChatResponse | None:
+        chat_obj = attr(client, "chat")
+        completions_obj = attr(chat_obj, "completions") if chat_obj is not None else None
+        create_fn = attr(completions_obj, "create")
+        if not callable(create_fn):
+            return None
+
+        def sdk_messages_for_prompt(prompt: str) -> list[dict[str, str]]:
+            messages: list[dict[str, str]] = []
             if req.system:
-                http_messages.insert(0, {"role": "system", "content": req.system})
-            def http_chat(max_tokens: int) -> tuple[str, object, Usage | None, str | None]:
+                messages.append({"role": "system", "content": req.system})
+            messages.append({"role": "user", "content": prompt})
+            return messages
+
+        def sdk_chat_once(prompt: str) -> tuple[str, object, Usage | None, str | None]:
+            messages = sdk_messages_for_prompt(prompt)
+            response = create_fn(
+                model=req.model,
+                messages=messages,
+                max_tokens=req.max_tokens,
+                stream=False,
+            )
+            text, finish_reason, usage, raw_id = _extract_sdk_chat_fields(response)
+            tokens_used = req.max_tokens
+            if _is_empty_due_token_limit(text=text, finish_reason=finish_reason):
+                retry_tokens = _retry_max_tokens(req.max_tokens)
+                if retry_tokens > req.max_tokens:
+                    retry_response = create_fn(
+                        model=req.model,
+                        messages=messages,
+                        max_tokens=retry_tokens,
+                        stream=False,
+                    )
+                    text, finish_reason, usage, raw_id = _extract_sdk_chat_fields(retry_response)
+                    tokens_used = retry_tokens
+            _raise_if_empty_due_token_limit(
+                text=text,
+                finish_reason=finish_reason,
+                max_tokens=tokens_used,
+                model=req.model,
+            )
+            return text, finish_reason, usage, raw_id
+
+        text, finish_reason, usage, raw_id = sdk_chat_once(req.prompt)
+        text, _, usage, raw_id = _continue_non_empty_token_limited_text(
+            req=req,
+            text=text,
+            finish_reason=finish_reason,
+            usage=usage,
+            raw_id=raw_id,
+            call_once=sdk_chat_once,
+        )
+        return ChatResponse(
+            provider=req.provider,
+            model=req.model,
+            text=text,
+            latency_ms=0.0,
+            usage=usage,
+            raw_id=raw_id,
+            stream_simulated=False,
+        )
+
+    def _chat_impl_with_http(self, req: ChatRequest) -> ChatResponse:
+        with self._http_client() as http:
+
+            def http_messages_for_prompt(prompt: str) -> list[dict[str, str]]:
+                messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
+                if req.system:
+                    messages.insert(0, {"role": "system", "content": req.system})
+                return messages
+
+            def http_chat(
+                prompt: str, max_tokens: int
+            ) -> tuple[str, object, Usage | None, str | None]:
                 payload = {
                     "model": req.model,
-                    "messages": http_messages,
+                    "messages": http_messages_for_prompt(prompt),
                     "max_tokens": max_tokens,
                     "stream": False,
                 }
@@ -216,18 +312,30 @@ class ZAIProvider(ProviderClientBase):
                 data = response.json()
                 return _extract_http_chat_fields(data)
 
-            text, finish_reason, usage, raw_id = http_chat(req.max_tokens)
-            tokens_used = req.max_tokens
-            if _is_empty_due_token_limit(text=text, finish_reason=finish_reason):
-                retry_tokens = _retry_max_tokens(req.max_tokens)
-                if retry_tokens > req.max_tokens:
-                    text, finish_reason, usage, raw_id = http_chat(retry_tokens)
-                    tokens_used = retry_tokens
-            _raise_if_empty_due_token_limit(
+            def http_chat_once(prompt: str) -> tuple[str, object, Usage | None, str | None]:
+                text, finish_reason, usage, raw_id = http_chat(prompt, req.max_tokens)
+                tokens_used = req.max_tokens
+                if _is_empty_due_token_limit(text=text, finish_reason=finish_reason):
+                    retry_tokens = _retry_max_tokens(req.max_tokens)
+                    if retry_tokens > req.max_tokens:
+                        text, finish_reason, usage, raw_id = http_chat(prompt, retry_tokens)
+                        tokens_used = retry_tokens
+                _raise_if_empty_due_token_limit(
+                    text=text,
+                    finish_reason=finish_reason,
+                    max_tokens=tokens_used,
+                    model=req.model,
+                )
+                return text, finish_reason, usage, raw_id
+
+            text, finish_reason, usage, raw_id = http_chat_once(req.prompt)
+            text, _, usage, raw_id = _continue_non_empty_token_limited_text(
+                req=req,
                 text=text,
                 finish_reason=finish_reason,
-                max_tokens=tokens_used,
-                model=req.model,
+                usage=usage,
+                raw_id=raw_id,
+                call_once=http_chat_once,
             )
             return ChatResponse(
                 provider=req.provider,
@@ -250,21 +358,57 @@ class ZAIProvider(ProviderClientBase):
         if not callable(create_fn):
             return self._simulate_stream(req)
 
-        messages: list[dict[str, str]] = []
-        if req.system:
-            messages.append({"role": "system", "content": req.system})
-        messages.append({"role": "user", "content": req.prompt})
         self.stream_is_simulated = False
-        stream = create_fn(
-            model=req.model, messages=messages, max_tokens=req.max_tokens, stream=True
-        )
-        chunks: list[str] = []
-        for event in stream:
-            piece = text_from_openai_stream_event(event)
-            if piece:
-                chunks.append(piece)
+
+        def stream_messages_for_prompt(prompt: str) -> list[dict[str, str]]:
+            messages: list[dict[str, str]] = []
+            if req.system:
+                messages.append({"role": "system", "content": req.system})
+            messages.append({"role": "user", "content": prompt})
+            return messages
+
+        def stream_once(prompt: str) -> tuple[list[str], object]:
+            stream = create_fn(
+                model=req.model,
+                messages=stream_messages_for_prompt(prompt),
+                max_tokens=req.max_tokens,
+                stream=True,
+            )
+            chunks: list[str] = []
+            finish_reason: object = None
+            for event in stream:
+                piece = text_from_openai_stream_event(event)
+                if piece:
+                    chunks.append(piece)
+                reason = _extract_stream_finish_reason(event)
+                if reason is not None:
+                    finish_reason = reason
+            return chunks, finish_reason
+
+        chunks, finish_reason = stream_once(req.prompt)
         if not chunks:
             return self._simulate_stream(req)
+        full_text = "".join(chunks)
+        continuation_round = 0
+        while (
+            _is_token_limit_finish(finish_reason)
+            and full_text.strip()
+            and continuation_round < CONTINUATION_MAX_ROUNDS
+        ):
+            continuation_round += 1
+            continuation_prompt = _build_continuation_prompt(
+                original_prompt=req.prompt,
+                partial_answer=full_text,
+            )
+            next_chunks, finish_reason = stream_once(continuation_prompt)
+            if not next_chunks:
+                break
+            merged = _merge_without_overlap(full_text, "".join(next_chunks))
+            delta = merged[len(full_text) :]
+            if not delta:
+                break
+            chunks.append(delta)
+            full_text = merged
         return chunks
 
     def _check_impl(self, started: float) -> CheckResult:

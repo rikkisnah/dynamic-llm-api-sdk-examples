@@ -33,6 +33,8 @@ CLI and UI must both consume `llm_examples.capabilities.CAPABILITIES`.
 - Keep output-mode parity for user calls: both CLI/Make and UI must support readable text and JSON render modes.
 - UI may add non-capability page navigation (e.g., chat/logs pages) as long as capability parity remains unchanged.
 - For UI prompt-entry surfaces (`run` and chat), preserve recent-prompt memory with explicit choose/clear controls.
+- Keep chat UI conversation-first: keep history/composer primary and place advanced controls under collapsible settings.
+- Keep chat attachments in-composer (`+` on message box) for file/image flows, including paste support where Streamlit/browser provides it.
 - Keep quote banner UX stable: top quote remains visible with a refresh action.
 - Keep version discoverability on both surfaces (`llm-examples --version` and visible UI version label).
 
@@ -45,6 +47,7 @@ CLI and UI must both consume `llm_examples.capabilities.CAPABILITIES`.
   - `check`
 - Provider-specific normalization belongs in provider modules.
 - Keep provider hardening for empty token-limit replies (e.g., reasoning-heavy models) inside provider adapters, with clear actionable errors after retries.
+- Keep Z.ai continuation hardening in provider adapters: when non-empty output hits token-limit finish, auto-continue and append seamlessly.
 - Include one standalone script in `examples/` per provider.
 
 ## Testing Rule

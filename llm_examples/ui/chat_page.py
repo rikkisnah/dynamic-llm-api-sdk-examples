@@ -52,7 +52,6 @@ from llm_examples.ui.state import (
 class ChatControls:
     selected_saved_prompt: str
     send_saved_prompt: bool
-    uploaded_files: list[UploadedFileLike]
     stream: bool
     max_tokens: int
     system: str
@@ -92,28 +91,31 @@ def _render_chat_message(role: str, content: str) -> None:
 def _render_chat_model_selector(provider: ProviderName, model_options: list[str]) -> str:
     selected_model = get_selected_chat_model(provider, model_options)
     model_index = model_options.index(selected_model) if selected_model in model_options else 0
-    model_raw = st.selectbox(
+    model_col, scope_col = st.columns([2, 3])
+    model_raw = model_col.selectbox(
         "Model",
         options=model_options,
         index=model_index,
         key=f"chat-model-{provider}",
+        help="Choose the active model for this chat thread.",
     )
     model_value = model_raw if isinstance(model_raw, str) else model_options[0]
     set_selected_chat_model(provider, model_value)
-    st.caption(f"Conversation scope: {provider} / {model_value}")
+    scope_col.caption(f"Conversation scope: {provider} / {model_value}")
     return model_value
 
 
-def _render_chat_thread_controls(provider: ProviderName, model_value: str) -> str:
-    controls_left, controls_right = st.columns(2)
-    if controls_left.button("Clear chat history", width="stretch"):
+def _render_chat_thread_controls(provider: ProviderName, model_value: str) -> None:
+    controls_left, info_col = st.columns([1, 3])
+    if controls_left.button(
+        "Clear chat",
+        icon=":material/delete:",
+        key=f"chat-clear-history-{provider}-{model_value}",
+        width="content",
+    ):
         clear_chat_messages(provider, model_value)
         st.rerun()
-    uploader_key = f"chat-uploads-{provider}-{model_value}"
-    if controls_right.button("Clear uploads", width="stretch"):
-        st.session_state.pop(uploader_key, None)
-        st.rerun()
-    return uploader_key
+    info_col.caption("Use the `+` icon in the message box to attach files or paste images.")
 
 
 def _render_chat_saved_prompt_controls(
@@ -123,7 +125,7 @@ def _render_chat_saved_prompt_controls(
     prompt_scope: str,
     prompt_history: list[str],
 ) -> tuple[str, bool]:
-    prompt_left, prompt_right = st.columns(2)
+    prompt_left, prompt_send_col, prompt_clear_col = st.columns([3, 1, 1])
     selected = prompt_left.selectbox(
         "Saved prompts",
         options=["", *prompt_history],
@@ -135,15 +137,17 @@ def _render_chat_saved_prompt_controls(
         ),
         help="Pick one of your recent prompts.",
     )
-    send_saved_prompt = prompt_right.button(
-        "Send saved prompt",
+    send_saved_prompt = prompt_send_col.button(
+        "Send",
+        icon=":material/send:",
         key=f"chat-send-saved-{provider}-{model_value}",
-        width="stretch",
+        width="content",
     )
-    if prompt_right.button(
-        "Clear saved prompts",
+    if prompt_clear_col.button(
+        "Clear",
+        icon=":material/delete_sweep:",
         key=f"chat-clear-prompts-{provider}-{model_value}",
-        width="stretch",
+        width="content",
     ):
         clear_prompt_history(prompt_scope)
         st.rerun()
@@ -151,23 +155,10 @@ def _render_chat_saved_prompt_controls(
     return selected_prompt, send_saved_prompt
 
 
-def _render_chat_uploads(uploader_key: str) -> list[UploadedFileLike]:
-    uploaded_raw = st.file_uploader(
-        "Load files or pictures",
-        accept_multiple_files=True,
-        key=uploader_key,
-        help="Text files are included in prompt context. Images are stored as metadata notes.",
-    )
-    uploaded_files = normalize_uploaded_files(uploaded_raw)
-    for uploaded_file in uploaded_files:
-        if is_image_attachment(uploaded_file):
-            st.image(uploaded_file.getvalue(), caption=uploaded_file.name, width=260)
-    return uploaded_files
-
-
 def _render_chat_generation_controls() -> tuple[bool, int, str]:
-    stream = st.toggle("Stream response", value=True)
-    max_tokens_raw = st.number_input(
+    stream_col, max_tokens_col = st.columns([1, 1])
+    stream = stream_col.toggle("Stream response", value=True)
+    max_tokens_raw = max_tokens_col.number_input(
         "Max tokens",
         min_value=1,
         value=512,
@@ -187,18 +178,35 @@ def _render_chat_history(history: list[dict[str, str]]) -> None:
         _render_chat_message(message.get("role", "assistant"), message.get("content", ""))
 
 
-def _resolve_chat_input(*, send_saved_prompt: bool, selected_saved_prompt: str) -> str | None:
-    user_message = st.chat_input("Ask your model")
+def _resolve_chat_input(
+    *, send_saved_prompt: bool, selected_saved_prompt: str, model_value: str
+) -> tuple[str | None, list[UploadedFileLike]]:
+    user_message = st.chat_input(
+        f"Message {model_value}",
+        accept_file="multiple",
+    )
     if isinstance(user_message, str) and user_message.strip():
-        return user_message.strip()
+        return user_message.strip(), []
+    text_value_obj = getattr(user_message, "text", None)
+    files_obj = getattr(user_message, "files", None)
+    if isinstance(text_value_obj, str) or isinstance(files_obj, list):
+        text_value = text_value_obj if isinstance(text_value_obj, str) else ""
+        uploaded_files = normalize_uploaded_files(files_obj if isinstance(files_obj, list) else [])
+        if text_value.strip() or uploaded_files:
+            text_message = text_value.strip() or "Analyze these attachments."
+            return text_message, uploaded_files
     if send_saved_prompt and selected_saved_prompt.strip():
-        return selected_saved_prompt.strip()
+        return selected_saved_prompt.strip(), []
     if send_saved_prompt:
         st.warning("Select a saved prompt first.")
-    return None
+    return None, []
 
 
-def _render_chat_user_turn(cleaned_user_message: str, attachment_names: list[str]) -> None:
+def _render_chat_user_turn(
+    cleaned_user_message: str,
+    attachment_names: list[str],
+    uploaded_files: list[UploadedFileLike],
+) -> None:
     with st.chat_message("user"):
         if attachment_names:
             attachments_label = ", ".join(attachment_names)
@@ -206,8 +214,11 @@ def _render_chat_user_turn(cleaned_user_message: str, attachment_names: list[str
                 wrapped_text_html(f"{cleaned_user_message}\n\nAttachments: {attachments_label}"),
                 unsafe_allow_html=True,
             )
-            return
-        st.markdown(wrapped_text_html(cleaned_user_message), unsafe_allow_html=True)
+        else:
+            st.markdown(wrapped_text_html(cleaned_user_message), unsafe_allow_html=True)
+        for uploaded_file in uploaded_files:
+            if is_image_attachment(uploaded_file):
+                st.image(uploaded_file.getvalue(), caption=uploaded_file.name, width=260)
 
 
 def _render_chat_assistant_reply(
@@ -261,19 +272,18 @@ def _render_chat_controls(
     prompt_scope: str,
     prompt_history: list[str],
 ) -> ChatControls:
-    uploader_key = _render_chat_thread_controls(provider, model_value)
-    selected_saved_prompt, send_saved_prompt = _render_chat_saved_prompt_controls(
-        provider=provider,
-        model_value=model_value,
-        prompt_scope=prompt_scope,
-        prompt_history=prompt_history,
-    )
-    uploaded_files = _render_chat_uploads(uploader_key)
-    stream, max_tokens, system = _render_chat_generation_controls()
+    with st.expander("Chat settings", expanded=False):
+        _render_chat_thread_controls(provider, model_value)
+        selected_saved_prompt, send_saved_prompt = _render_chat_saved_prompt_controls(
+            provider=provider,
+            model_value=model_value,
+            prompt_scope=prompt_scope,
+            prompt_history=prompt_history,
+        )
+        stream, max_tokens, system = _render_chat_generation_controls()
     return ChatControls(
         selected_saved_prompt=selected_saved_prompt,
         send_saved_prompt=send_saved_prompt,
-        uploaded_files=uploaded_files,
         stream=stream,
         max_tokens=max_tokens,
         system=system,
@@ -312,7 +322,7 @@ def _submit_chat_turn(
         stream=stream,
     )
     append_chat_message(provider, model_value, "user", user_turn)
-    _render_chat_user_turn(cleaned_user_message, attachment_names)
+    _render_chat_user_turn(cleaned_user_message, attachment_names, uploaded_files)
     try:
         reply = _render_chat_assistant_reply(
             provider=provider,
@@ -359,10 +369,24 @@ def render_chat_page(provider: ProviderName, *, log_ui_call: Callable[..., None]
         prompt_history=get_prompt_history(prompt_scope),
     )
     history = get_chat_messages(provider, model_value)
-    _render_chat_history(history)
-    cleaned_user_message = _resolve_chat_input(
+    if history:
+        _render_chat_history(history)
+    else:
+        st.markdown(
+            "<div class='chat-empty'>What are you working on?</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            (
+                "<div class='chat-subtle'>Start chatting below. Use Chat settings for prompts, "
+                "files, and controls.</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+    cleaned_user_message, uploaded_files = _resolve_chat_input(
         send_saved_prompt=controls.send_saved_prompt,
         selected_saved_prompt=controls.selected_saved_prompt,
+        model_value=model_value,
     )
     if cleaned_user_message is None:
         return
@@ -371,7 +395,7 @@ def render_chat_page(provider: ProviderName, *, log_ui_call: Callable[..., None]
         model_value=model_value,
         prompt_scope=prompt_scope,
         cleaned_user_message=cleaned_user_message,
-        uploaded_files=controls.uploaded_files,
+        uploaded_files=uploaded_files,
         history=history,
         stream=controls.stream,
         max_tokens=controls.max_tokens,

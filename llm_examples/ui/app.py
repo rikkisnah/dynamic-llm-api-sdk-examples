@@ -124,6 +124,28 @@ def _apply_dark_mode() -> None:
   word-break: break-word;
   line-height: 1.5;
 }
+[data-testid="stChatMessage"] {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+[data-testid="stChatMessageContent"] {
+  border: 1px solid #2a2f3d;
+  border-radius: 10px;
+  background-color: #101624;
+  padding: 0.55rem 0.8rem;
+}
+.chat-empty {
+  margin-top: 12vh;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  font-size: 2rem;
+  color: #e7e9ee;
+}
+.chat-subtle {
+  margin-bottom: 7vh;
+  text-align: center;
+  color: #9ca4b5;
+}
 .quote-line {
   white-space: nowrap;
   overflow-x: auto;

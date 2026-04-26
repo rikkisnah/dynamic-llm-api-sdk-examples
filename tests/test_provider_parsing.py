@@ -157,6 +157,50 @@ def test_zai_chat_retries_and_succeeds_sdk(monkeypatch: pytest.MonkeyPatch) -> N
     assert calls == [32, 512]
 
 
+def test_zai_chat_auto_continues_when_non_empty_token_limited_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ZAIProvider()
+    calls: list[dict[str, object]] = []
+    responses = [
+        _Obj(
+            choices=[_Obj(message=_Obj(content="Part 1. "), finish_reason="length")],
+            usage=None,
+            id="id-1",
+        ),
+        _Obj(
+            choices=[_Obj(message=_Obj(content="Part 2."), finish_reason="stop")],
+            usage=None,
+            id="id-2",
+        ),
+    ]
+
+    def fake_create(**kwargs: Any) -> object:
+        calls.append({"messages": kwargs["messages"], "max_tokens": kwargs["max_tokens"]})
+        return responses[len(calls) - 1]
+
+    client = _Obj(chat=_Obj(completions=_Obj(create=fake_create)))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+
+    request = ChatRequest(
+        provider="zai",
+        model=provider.default_model,
+        prompt="Explain streaming in APIs",
+        max_tokens=128,
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "Part 1. Part 2."
+    assert len(calls) == 2
+    second_messages = calls[1]["messages"]
+    assert isinstance(second_messages, list)
+    assert second_messages
+    last_message = second_messages[-1]
+    assert isinstance(last_message, dict)
+    content = last_message.get("content")
+    assert isinstance(content, str)
+    assert "Continue the same answer" in content
+
+
 def test_zai_chat_extracts_structured_content(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = ZAIProvider()
     response = _Obj(
@@ -231,6 +275,66 @@ def test_zai_chat_retries_and_succeeds_http(monkeypatch: pytest.MonkeyPatch) -> 
     assert calls == [32, 512]
 
 
+def test_zai_chat_auto_continues_when_non_empty_token_limited_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ZAIProvider()
+    monkeypatch.setattr(provider, "_sdk_client", lambda: None)
+    payloads = [
+        {
+            "choices": [{"finish_reason": "length", "message": {"content": "First part. "}}],
+            "id": "id-1",
+            "usage": None,
+        },
+        {
+            "choices": [{"finish_reason": "stop", "message": {"content": "Second part."}}],
+            "id": "id-2",
+            "usage": None,
+        },
+    ]
+    request_payloads: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __init__(self, data: dict[str, object]) -> None:
+            self._data = data
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._data
+
+    class _FakeHttpClient:
+        def __enter__(self) -> _FakeHttpClient:
+            return self
+
+        def __exit__(self, *_: object) -> bool:
+            return False
+
+        def post(self, _path: str, *, json: dict[str, object]) -> _FakeResponse:
+            request_payloads.append(json)
+            return _FakeResponse(payloads[len(request_payloads) - 1])
+
+    monkeypatch.setattr(provider, "_http_client", lambda: _FakeHttpClient())
+    request = ChatRequest(
+        provider="zai",
+        model=provider.default_model,
+        prompt="Explain streaming in APIs",
+        max_tokens=128,
+    )
+    result = provider._chat_impl(request)
+    assert result.text == "First part. Second part."
+    assert len(request_payloads) == 2
+    second_messages = request_payloads[1]["messages"]
+    assert isinstance(second_messages, list)
+    assert second_messages
+    second_user = second_messages[-1]
+    assert isinstance(second_user, dict)
+    content = second_user.get("content")
+    assert isinstance(content, str)
+    assert "Continue the same answer" in content
+
+
 def test_zai_stream_extracts_structured_delta_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = ZAIProvider()
     events = [
@@ -256,3 +360,42 @@ def test_zai_stream_extracts_structured_delta_chunks(monkeypatch: pytest.MonkeyP
     chunks = list(provider._stream_impl(request))
     assert chunks == ["Hello", " world"]
     assert provider.stream_is_simulated is False
+
+
+def test_zai_stream_auto_continues_when_token_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = ZAIProvider()
+    prompts: list[str] = []
+    first_events = [
+        {"choices": [{"delta": {"content": "Part 1 "}}]},
+        {"choices": [{"delta": {"content": "Part 2"}}]},
+        {"choices": [{"delta": {}, "finish_reason": "length"}]},
+    ]
+    second_events = [
+        {"choices": [{"delta": {"content": " and Part 3"}}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+    ]
+
+    def fake_create(**kwargs: Any) -> object:
+        messages = kwargs.get("messages")
+        if isinstance(messages, list) and messages and isinstance(messages[-1], dict):
+            content = messages[-1].get("content")
+            if isinstance(content, str):
+                prompts.append(content)
+        if kwargs.get("stream"):
+            return first_events if len(prompts) == 1 else second_events
+        return _Obj(choices=[], usage=None, id="id-3")
+
+    client = _Obj(chat=_Obj(completions=_Obj(create=fake_create)))
+    monkeypatch.setattr(provider, "_sdk_client", lambda: client)
+
+    request = ChatRequest(
+        provider="zai",
+        model=provider.default_model,
+        prompt="Explain streaming in APIs",
+        max_tokens=128,
+        stream=True,
+    )
+    chunks = list(provider._stream_impl(request))
+    assert "".join(chunks) == "Part 1 Part 2 and Part 3"
+    assert len(prompts) == 2
+    assert "Continue the same answer" in prompts[1]

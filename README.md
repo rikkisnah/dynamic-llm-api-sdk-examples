@@ -79,6 +79,7 @@ make test-llm-all
 ```
 
 Note: Z.ai models can consume output tokens for reasoning first; low `MAX_TOKENS` may yield empty final text.
+Note: Z.ai adapter auto-continues when it hits a token-limit finish with non-empty text so long answers can continue seamlessly in CLI and UI (including stream mode).
 Note: OpenAI reasoning-heavy models (for example `gpt-5-mini`) can also consume token budget before producing visible text; the OpenAI adapter now retries once with a higher token budget when it detects this empty token-limit response pattern.
 
 Run UI:
@@ -99,9 +100,11 @@ UI defaults:
 - Run form keeps recent prompts with `Saved prompts` selector and `Clear saved prompts`.
 - Chat page keeps memory per `provider + model` thread, with explicit `Clear chat history`.
 - Chat keeps recent prompts with `Saved prompts` selector, `Send saved prompt`, and `Clear saved prompts`.
+- Chat is conversation-first (ChatGPT-style): history and composer stay primary, while prompt/file/stream controls stay in collapsed `Chat settings`.
 - Chat replies are rendered as wrapped, copyable text blocks.
-- Uploaded text files are injected into prompt context for that turn.
-- Uploaded images/binary files are logged as attachment metadata notes (this normalized API surface remains text-only).
+- Use the chat composer `+` button to attach files/images per message (and paste images where browser clipboard upload is supported).
+- Attached text files are injected into prompt context for that turn.
+- Attached images/binary files are logged as attachment metadata notes (this normalized API surface remains text-only).
 
 ## Commands
 
