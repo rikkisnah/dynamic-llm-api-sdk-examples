@@ -85,7 +85,12 @@ def is_chat_model(provider: ProviderName, model_id: str) -> bool:
     if provider == "gemini":
         return _GEMINI_STABLE_RE.match(family) is not None
     if provider == "deepseek":
-        if re.search(r"(^|[-_/])(?:v4|pro|r1)($|[-_/])", family):
+        # `r1` is reasoner-only (incompatible with the OpenAI-compat tool
+        # protocol); the generation/size markers `v4` and `pro` belong to
+        # ordinary chat variants (e.g. `deepseek-v4-flash`, `deepseek-v4-pro`)
+        # and must remain visible. The global `reasoner` non-chat marker
+        # already strips `deepseek-reasoner` separately.
+        if re.search(r"(^|[-_/])r1($|[-_/])", family):
             return False
         return "deepseek" in lower
     if provider == "qwen":
@@ -431,15 +436,29 @@ class ProviderClientBase(BaseClient, ABC):
             ranked = append_env_default_models(self.provider, ranked)
             if ranked:
                 return ranked
-            if self.fallback_models:
-                return model_info_list(self.provider, self.fallback_models, fallback=True)
-            return []
+            return self._chat_filtered_fallback()
         except LLMError:
             raise
         except Exception as exc:
             if self.fallback_models and self._is_unsupported(exc):
-                return model_info_list(self.provider, self.fallback_models, fallback=True)
+                return self._chat_filtered_fallback()
             raise self._to_error(exc, model=None, action="list models") from exc
+
+    def _chat_filtered_fallback(self) -> list[ModelInfo]:
+        """Return fallback models that survive the chat-model filter.
+
+        Some provider fallback lists historically include reasoner-only ids
+        (e.g. `deepseek-reasoner`). Honour the same filter we apply to live
+        results so the dropdown can never expose a non-chat model.
+        """
+        chat_only = tuple(
+            model_id
+            for model_id in self.fallback_models
+            if is_chat_model(self.provider, model_id)
+        )
+        if chat_only:
+            return model_info_list(self.provider, chat_only, fallback=True)
+        return []
 
     def chat(self, req: ChatRequest) -> ChatResponse:
         started = time.perf_counter()
