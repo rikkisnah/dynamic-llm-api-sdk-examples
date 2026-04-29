@@ -44,10 +44,10 @@ from llm_examples.ui.state import (
     append_ui_call_log,
     clear_prompt_history,
     clear_ui_call_log,
+    get_initial_persisted_page,
     get_latest_models,
     get_output_mode,
     get_prompt_history,
-    get_selected_page,
     get_selected_provider,
     get_ui_call_log,
     persist_session_state,
@@ -684,13 +684,15 @@ def render() -> None:
     st.title("Dynamic LLM API SDK Examples")
     st.caption(f"Version {get_app_version()}")
     _render_quote()
-    # Initialise session state for "selected_page" before the widget renders so
-    # the radio's `key=` finds a valid value and we don't trip Streamlit's
-    # "default value + session_state" warning.
-    get_selected_page(DEFAULT_PAGE)
+    # Pull the persisted page off disk for the initial render. We deliberately
+    # do NOT pre-write `st.session_state["selected_page"]` here -- letting the
+    # radio claim its own `key=` is the only way to avoid Streamlit's
+    # "default value + session_state" warning, since `radio` always carries an
+    # implicit default.
     selected_page = st.sidebar.radio(
         "Page",
         PAGE_OPTIONS,
+        index=PAGE_OPTIONS.index(get_initial_persisted_page(DEFAULT_PAGE)),
         key="selected_page",
         on_change=persist_session_state,
     )

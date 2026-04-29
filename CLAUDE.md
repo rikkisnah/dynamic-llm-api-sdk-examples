@@ -100,12 +100,17 @@ CLI and UI must both consume `llm_examples.capabilities.CAPABILITIES`.
 - `make run` / `make ui` must remain port-resilient: probe the requested
   `PORT` via `scripts/find_free_port.py` and fall back to the next free port in
   `[PORT, PORT + PORT_SPAN)` (default span: 50) before invoking Streamlit.
-- Streamlit widgets that share a `key=` with a persisted `st.session_state`
-  entry (e.g. `selected_page`) must NOT also pass `index=`/`value=` — Streamlit
-  warns "default value + session_state" when both are used. Initialize
-  `st.session_state[key]` via the appropriate getter (e.g.
-  `get_selected_page(DEFAULT_PAGE)`) before the widget renders, then attach
+- Streamlit widgets that own a persisted `st.session_state` entry via `key=`
+  must NOT have that entry pre-written from API code — Streamlit's
+  `radio`/`selectbox`/etc. all carry an implicit default value, and any
+  earlier `st.session_state[key] = ...` triggers the "default value +
+  session_state" warning on first render. Read the persisted value directly
+  from disk for the widget's `index=`/`value=` (e.g. via
+  `get_initial_persisted_page`), let the widget claim its own key, and attach
   `on_change=persist_session_state` so user-driven mutations land on disk.
+  `_ensure_loaded` skips widget-managed keys (`_WIDGET_MANAGED_KEYS`) when
+  rehydrating from disk for the same reason; `_persist` preserves disk values
+  for keys the widget hasn't yet claimed.
 
 ## Makefile Rule
 

@@ -18,6 +18,12 @@ from llm_examples.ui.persistence import load_state, persisted_keys, save_state
 
 _LOADED_SENTINEL = "_persisted_state_loaded"
 
+# Persisted keys that map to a Streamlit widget's `key=`. Pre-writing them to
+# `st.session_state` would trigger the "default value + session_state" warning,
+# so the widget initializes them itself and we only persist *after* the widget
+# claims the key (via `on_change=persist_session_state`).
+_WIDGET_MANAGED_KEYS: frozenset[str] = frozenset({"selected_page"})
+
 
 def _ensure_loaded() -> None:
     """Rehydrate persisted UI state into st.session_state once per session."""
@@ -26,13 +32,28 @@ def _ensure_loaded() -> None:
     st.session_state[_LOADED_SENTINEL] = True
     persisted = load_state()
     for key in persisted_keys():
+        if key in _WIDGET_MANAGED_KEYS:
+            continue
         if key not in st.session_state and key in persisted:
             st.session_state[key] = persisted[key]
 
 
 def _persist() -> None:
-    """Write the subset of session_state that participates in persistence."""
-    payload = {key: st.session_state.get(key) for key in persisted_keys()}
+    """Write the subset of session_state that participates in persistence.
+
+    Keys absent from `st.session_state` (e.g. widget-managed keys before the
+    widget has rendered) are preserved from the existing on-disk document so
+    one setter call doesn't accidentally null another key's value.
+    """
+    existing = load_state()
+    payload: dict[str, object] = {}
+    for key in persisted_keys():
+        value = st.session_state.get(key)
+        if value is None:
+            if key in existing and existing[key] is not None:
+                payload[key] = existing[key]
+        else:
+            payload[key] = value
     save_state(payload)
 
 
@@ -84,6 +105,20 @@ def set_selected_page(value: PageName) -> None:
     _ensure_loaded()
     st.session_state["selected_page"] = value
     _persist()
+
+
+def get_initial_persisted_page(default: PageName) -> PageName:
+    """Read the persisted page directly from disk without touching session_state.
+
+    Used as the initial `index=` value for the page radio. Reading from disk
+    instead of session_state means the widget can claim its own `key=` without
+    Streamlit warning about a redundant default+session-state pair.
+    """
+    persisted = load_state()
+    candidate = persisted.get("selected_page")
+    if isinstance(candidate, str) and candidate in {"Chat", "API", "Logs"}:
+        return cast(PageName, candidate)
+    return default
 
 
 def get_output_mode(default: str = "txt") -> str:
