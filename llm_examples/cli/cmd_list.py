@@ -5,16 +5,18 @@ from __future__ import annotations
 from argparse import Namespace
 
 from llm_examples.cli.output import print_json, print_lines
+from llm_examples.cli.providers import resolve_provider
 from llm_examples.services import list_models
 
 
 def handle_list_models(args: Namespace) -> int:
     """List models for a given provider."""
-    models = list_models(args.provider)
+    provider = resolve_provider(args.provider)
+    models = list_models(provider)
     if args.json:
         payload = {
             "ok": True,
-            "provider": args.provider,
+            "provider": provider,
             "models": [{"id": item.id, "description": item.description} for item in models],
         }
         print_json(payload)

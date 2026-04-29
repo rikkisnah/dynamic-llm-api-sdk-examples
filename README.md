@@ -8,10 +8,11 @@ Supported providers:
 |---|---|---|
 | OpenAI | [platform.openai.com/docs](https://platform.openai.com/docs) | `https://api.openai.com/v1` |
 | Claude (Anthropic) | [docs.anthropic.com](https://docs.anthropic.com) | `https://api.anthropic.com` |
-| Gemini (Google) | [ai.google.dev/docs](https://ai.google.dev/docs) | `https://generativelanguage.googleapis.com` |
+| Gemini (Google, OpenAI-compatible endpoint) | [ai.google.dev/docs](https://ai.google.dev/docs) | `https://generativelanguage.googleapis.com/v1beta/openai` |
 | DeepSeek | [api-docs.deepseek.com](https://api-docs.deepseek.com) | `https://api.deepseek.com` |
 | Qwen (DashScope OpenAI-compatible) | [dashscope.aliyun.com](https://dashscope.aliyun.com) | `https://dashscope-us.aliyuncs.com/compatible-mode/v1` |
 | Z.ai | [docs.z.ai](https://docs.z.ai) | `https://api.z.ai/api/paas/v4` |
+| Codex / OCA (OpenAI-SDK-compatible LiteLLM proxy) | internal | `https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm` |
 
 ## Quickstart
 
@@ -93,30 +94,36 @@ make test-llm-all
 
 Note: Z.ai models can consume output tokens for reasoning first; low `MAX_TOKENS` may yield empty final text.
 Note: Z.ai adapter auto-continues when it hits a token-limit finish with non-empty text so long answers can continue seamlessly in CLI and UI (including stream mode).
-Note: OpenAI reasoning-heavy models (for example `gpt-5-mini`) can also consume token budget before producing visible text; the OpenAI adapter now retries once with a higher token budget when it detects this empty token-limit response pattern.
+Note: OpenAI / Z.ai / OCA reasoning-heavy models can consume token budget before producing visible text; both adapters retry once with a higher token budget (`max(512, current*2)` clamped to 4096) when they detect this empty token-limit response pattern.
+Note: Friendly error messages are surfaced for `thought_signature`, `computer-use`, `reasoning_content`, Cloudflare challenges, and authentication failures so users know exactly which knob to change.
 
 Run UI:
 
 ```bash
 make run PORT=8501
+# If the port is busy, the Makefile probes the next free port up to
+# PORT + PORT_SPAN (default 50) and starts Streamlit there. Override
+# with `make run PORT=8600 PORT_SPAN=10` to scan a custom window.
 ```
 
 UI defaults:
 
 - Dark theme is always enabled.
-- Version is shown in the UI header and sidebar.
+- Version is shown in the UI header and sidebar (matches `llm-examples --version`).
+- Selected provider, selected chat model per provider, page selection, output mode, and prompt history are persisted to a gitignored `.state/llm_ui_state.json` so they survive Streamlit restarts and browser reloads.
 - A single-line quote banner is shown at the top of the page (famous/funny/Bible/Hindu-epic rotation) with a `Refresh quote` icon control.
-- Refreshing the quote keeps the current page selection (`API`/`Chat`/`Logs`) instead of jumping surfaces.
+- Refreshing the quote keeps the current page selection (`Chat`/`API`/`Logs`) instead of jumping surfaces.
 - A sidebar call log records all Streamlit-triggered provider calls (start/success/error).
 - A visible `Output format` toggle (`TXT` or `JSON`) lets every UI call render in either mode.
-- Sidebar has a `Page` switch (`API` / `Chat` / `Logs`).
+- Sidebar has a `Page` switch (`Chat` / `API` / `Logs`); first-time users land on `Chat` by default, and the last-selected page is restored from `.state/llm_ui_state.json` on subsequent runs.
 - Run form model is chosen from the provider model list (no manual model text entry).
 - Run form keeps recent prompts with `Saved prompts` selector and `Clear saved prompts`.
 - API `TXT` outputs now include visible copy-ready blocks (with one-click copy) across `providers`, `list-models`, `run`, and `check`.
 - API `run` responses follow chat-style rendering: markdown display and long-response scrolling.
 - API `run` now shows explicit progress states (`calling`, `streaming/generating`, `completed`) with elapsed time.
 - Chat page keeps memory per `provider + model` thread, with explicit `Clear chat history`.
-- Chat keeps recent prompts with `Saved prompts` selector, `Send saved prompt`, and `Clear saved prompts`.
+- Chat keeps recent prompts with `Saved prompts` selector, `Send saved prompt`, and `Clear saved prompts`. The picker is rendered above the chat composer (outside the collapsed `Chat settings` expander) whenever there is at least one saved prompt for the active provider.
+- Saved prompts are scoped per provider (one shared list across all models for that provider) and persisted to disk via `.state/llm_ui_state.json`.
 - Chat is conversation-first (ChatGPT-style): history and composer stay primary, while prompt/file/stream controls stay in collapsed `Chat settings`.
 - Chat settings include a `Web research` toggle that fetches DuckDuckGo + Wikipedia sources and injects summarized references into the current turn (no MCP dependency).
 - Chat replies render with markdown formatting, and long replies are shown in a bounded scrollable panel.
@@ -142,23 +149,42 @@ Web research invocation is UI-chat only and provider-agnostic: the app fetches s
 
 ## Env Vars
 
-| Provider | API key env | Base URL env |
-|---|---|---|
-| OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL` |
-| Claude | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` |
-| Gemini | `GEMINI_API_KEY` | — |
-| DeepSeek | `DEEPSEEK_API_KEY` | `DEEPSEEK_BASE_URL` |
-| Qwen | `DASHSCOPE_API_KEY` | `DASHSCOPE_BASE_URL` |
-| Z.ai | `ZAI_API_KEY` | `ZAI_BASE_URL` |
+`.env` files are loaded from this repo root **and** `llm_examples/.env`. Process
+environment values always win; the repo-root `.env` overrides values from
+`llm_examples/.env`.
+
+| Provider | API key env | Base URL env | Model env aliases |
+|---|---|---|---|
+| OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | `OPENAI_MODEL`, `OPENAI_MODEL_CHAT`, `AI_MODEL` |
+| Claude | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | `ANTHROPIC_MODEL`, `CLAUDE_MODEL`, `CLAUDE_CHAT_MODEL`, `AI_MODEL` |
+| Gemini | `GEMINI_API_KEY` | `GEMINI_BASE_URL` | `GEMINI_MODEL`, `AI_MODEL` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `DEEPSEEK_BASE_URL` | `DEEPSEEK_MODEL`, `AI_MODEL` |
+| Qwen | `DASHSCOPE_API_KEY` | `DASHSCOPE_BASE_URL` | `QWEN_MODEL`, `DASHSCOPE_MODEL`, `AI_MODEL` |
+| Z.ai | `ZAI_API_KEY` | `ZAI_BASE_URL` | `ZAI_MODEL`, `Z_AI_MODEL`, `AI_MODEL` |
+| Codex / OCA | `OCA_API_KEY` (or `OCA_ACCESS_TOKEN`, or `~/.codex/auth.json`) | `OCA_BASE_URL` | `OCA_MODEL`, `MODEL_CHAT`, `AI_MODEL` |
+
+Other env vars: `AI_PROVIDER` / `DEFAULT_AI_PROVIDER` set the default provider
+for both CLI (`--provider` becomes optional) and UI (initial selection);
+`AI_MAX_TOKENS` / `MAX_TOKENS` override the default token budget;
+`OCA_CLIENT_HEADER` / `OCA_CLIENT_VERSION` customize OCA proxy headers;
+`REASONING_EFFORT` controls OCA reasoning effort (defaults to `xhigh`);
+`CODEX_AUTH_PATH` overrides the location of the Codex auth.json file;
+`LLM_EXAMPLES_STATE_FILE` overrides the on-disk UI state location;
+`LLM_EXAMPLES_DISABLE_STATE=1` disables on-disk UI persistence.
 
 ## Parity Matrix
 
 | Capability | Parameters |
 |---|---|
 | `providers` | — |
-| `list-models` | `provider` |
-| `run` | `provider`, `model`, `prompt`/`prompt-file`, `system`, `max-tokens`, `stream` |
-| `check` | `provider` |
+| `list-models` | `provider` (optional; resolves from `AI_PROVIDER` when omitted) |
+| `run` | `provider` (optional), `model`, `prompt`/`prompt-file`, `system`, `max-tokens`, `stream` |
+| `check` | `provider` (optional) |
+
+`list-models` filters non-chat models (embeddings, TTS, audio, vision-preview,
+computer-use, customtools, thinking, reasoners, etc.) for every provider, and
+allowlists known stable Gemini families to avoid OpenAI-compatible incompatibilities
+with `thought_signature`, computer-use, and thinking variants.
 
 ## Layout
 

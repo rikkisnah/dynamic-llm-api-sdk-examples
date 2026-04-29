@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
+from contextlib import suppress
 from typing import Literal, cast
 
+from llm_examples.config import explicit_provider_model
 from llm_examples.domain_types import (
     ChatRequest,
     ChatResponse,
@@ -24,6 +27,158 @@ from llm_examples.llm_client import BaseClient
 logger = logging.getLogger(__name__)
 
 _NOT_SUPPORTED_HINTS = ("not support", "unsupported", "not implemented", "does not support")
+
+RETRY_MIN_MAX_TOKENS = 512
+RETRY_MAX_MAX_TOKENS = 4096
+
+_NON_CHAT_MARKERS: tuple[str, ...] = (
+    "embedding",
+    "embed",
+    "rerank",
+    "moderation",
+    "whisper",
+    "tts",
+    "transcribe",
+    "speech",
+    "image",
+    "vision-preview",
+    "audio",
+    "realtime",
+    "babbage",
+    "davinci",
+    "customtools",
+    "thinking",
+    "thought",
+    "reasoner",
+    "computer-use",
+    "computer_use",
+)
+
+# Stable Gemini families that work via the OpenAI-compatible endpoint with
+# standard tool calling. Specialty variants (computer-use, customtools,
+# thinking, image-generation, native-audio, gemini-3.x preview, etc.) require
+# Google-native plumbing the OpenAI-compatible protocol cannot supply, so we
+# allowlist instead of blocklist.
+_GEMINI_STABLE_RE = re.compile(
+    r"^gemini-(?:1\.5|2\.0|2\.5)-(?:flash|pro|flash-lite|flash-8b)"
+    r"(?:-(?:\d{2,3}|exp|latest|\d{2}-\d{4}))?$"
+)
+
+
+def model_family(model_id: str) -> str:
+    """Strip a leading `provider/` namespace so we rank by the bare family id."""
+    return model_id.split("/", 1)[1] if "/" in model_id else model_id
+
+
+def is_chat_model(provider: ProviderName, model_id: str) -> bool:
+    """Return whether a listed model id is usable for chat-style generation."""
+    lower = model_id.lower()
+    family = model_family(lower)
+    if any(marker in lower for marker in _NON_CHAT_MARKERS):
+        return False
+    if provider == "claude":
+        return "claude" in lower
+    if provider in {"openai", "oca"}:
+        if re.search(r"(^|-)pro($|-)", family):
+            return False
+        return family.startswith(("gpt-", "o1", "o3", "o4", "o5")) or "codex" in lower
+    if provider == "gemini":
+        return _GEMINI_STABLE_RE.match(family) is not None
+    if provider == "deepseek":
+        if re.search(r"(^|[-_/])(?:v4|pro|r1)($|[-_/])", family):
+            return False
+        return "deepseek" in lower
+    if provider == "qwen":
+        if re.search(r"(^|[-_/])(?:vl|ocr)($|[-_/])", family):
+            return False
+        return "qwen" in lower
+    if provider == "zai":
+        return "glm" in family or "zai" in lower
+    return True
+
+
+def _model_date_score(model_id: str) -> int:
+    best = 0
+    for match in re.findall(r"20\d{2}(?:[-_.]?\d{2}){0,2}", model_id):
+        digits = re.sub(r"\D", "", match)
+        with suppress(ValueError):
+            best = max(best, int(digits))
+    return best
+
+
+def _model_version_score(model_id: str) -> tuple[float, ...]:
+    without_dates = re.sub(r"20\d{2}(?:[-_.]?\d{2}){0,2}", "", model_id)
+    return tuple(float(num) for num in re.findall(r"\d+(?:\.\d+)?", without_dates))
+
+
+def _model_sort_key(model: ModelInfo) -> tuple[tuple[float, ...], int, int, str]:
+    family = model_family(model.id).lower()
+    return (
+        _model_version_score(family),
+        1 if "latest" in family else 0,
+        _model_date_score(family),
+        model.id,
+    )
+
+
+def rank_chat_models(models: Iterable[ModelInfo]) -> list[ModelInfo]:
+    """Filter to chat-only models and rank newest-first."""
+    rows = [model for model in models if is_chat_model(model.provider, model.id)]
+    return sorted(rows, key=_model_sort_key, reverse=True)
+
+
+_CLOUDFLARE_HINTS = ("enable javascript and cookies to continue", "cf_chl")
+
+
+def format_provider_error(provider: ProviderName, exc: Exception) -> str:
+    """Return a friendly, actionable error message for known failure modes."""
+    msg = str(exc)
+    lower = msg.lower()
+    if any(hint in lower for hint in _CLOUDFLARE_HINTS):
+        return (
+            f"{provider}: blocked by Cloudflare on this host (received an HTML challenge "
+            "instead of an API response). Verify the base URL or run from a different network."
+        )
+    if "thought_signature" in lower:
+        return (
+            f"{provider}: the selected model needs Google's native `thought_signature` "
+            "round-tripping for tool use, which the OpenAI-compatible endpoint cannot supply. "
+            "Pick a stable Gemini chat model (e.g. `gemini-2.5-flash`, `gemini-2.5-pro`) or "
+            "set `GEMINI_MODEL` to one of those."
+        )
+    if "computer use tool" in lower or "computer-use" in lower or "computer_use" in lower:
+        return (
+            f"{provider}: the selected model is a Computer-Use preview that requires the "
+            "Computer-Use tool binding. Pick a stable chat model from the dropdown or set "
+            "the provider model env var to a non-preview chat model."
+        )
+    if "reasoning_content" in lower:
+        return (
+            f"{provider}: the selected model needs provider-native `reasoning_content` "
+            "round-tripping that this OpenAI-compatible adapter cannot provide. Pick a "
+            "non-reasoning chat model or set the provider model env var to one."
+        )
+    if "invalid x-api-key" in lower:
+        return f"{provider}: rejected the configured API key."
+    if "authentication_error" in lower or "authenticationerror" in lower:
+        return f"{provider}: authentication failed."
+    return msg
+
+
+def append_env_default_models(provider: ProviderName, ranked: list[ModelInfo]) -> list[ModelInfo]:
+    """Append the env-configured override (if any) so users can always pick it."""
+    override = explicit_provider_model(provider)
+    if not override:
+        return ranked
+    if any(model.id == override for model in ranked):
+        return ranked
+    return [*ranked, ModelInfo(provider=provider, id=override, description="env override")]
+
+
+def retry_max_tokens(current: int) -> int:
+    """Compute the next retry max-tokens budget, clamped to shared [min, max]."""
+    doubled = current * 2
+    return min(RETRY_MAX_MAX_TOKENS, max(RETRY_MIN_MAX_TOKENS, doubled))
 
 
 def classify_exception(
@@ -271,9 +426,11 @@ class ProviderClientBase(BaseClient, ABC):
 
     def list_models(self) -> list[ModelInfo]:
         try:
-            models = self._list_models_impl()
-            if models:
-                return models
+            raw = self._list_models_impl()
+            ranked = rank_chat_models(raw)
+            ranked = append_env_default_models(self.provider, ranked)
+            if ranked:
+                return ranked
             if self.fallback_models:
                 return model_info_list(self.provider, self.fallback_models, fallback=True)
             return []
@@ -323,7 +480,8 @@ class ProviderClientBase(BaseClient, ABC):
 
     def _to_error(self, exc: Exception, *, model: str | None, action: str) -> LLMError:
         kind = classify_exception(exc)
-        message = f"Failed to {action} for provider '{self.provider}': {exc}"
+        friendly = format_provider_error(self.provider, exc)
+        message = f"Failed to {action} for provider '{self.provider}': {friendly}"
         return LLMError(provider=self.provider, model=model, kind=kind, message=message, cause=exc)
 
     def _is_unsupported(self, exc: Exception) -> bool:

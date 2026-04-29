@@ -4,12 +4,35 @@
 
 1. Tier 0: domain/config/capability types
 2. Tier 1: provider interface (`BaseClient`)
-3. Tier 2: provider adapters
+3. Tier 2: provider adapters (one per provider, plus shared `_common.py` helpers)
 4. Tier 3: provider registry
 5. Tier 4: service layer
 6. Tier 5: CLI and Streamlit surfaces
 
 UI and CLI only call `llm_examples.services`.
+
+## Configuration Loading
+
+`llm_examples.config` loads `.env` from two locations: the repo root and
+`llm_examples/.env`. Process environment variables always win; the repo-root
+`.env` overrides values that came from `llm_examples/.env`. The same module
+exposes `resolve_default_provider`, `explicit_provider_model`, `get_max_tokens`,
+and OCA helpers (`codex_api_key`, `codex_reasoning_effort`,
+`codex_client_headers`, `codex_auth_path`).
+
+## Provider Resolution
+
+Provider selection follows this precedence:
+
+1. The CLI flag `--provider` or the UI sidebar selection.
+2. `AI_PROVIDER` env var (case-insensitive, supports aliases such as
+   `anthropic`/`claude`, `codex`/`oca`, `z.ai`/`zai`).
+3. `DEFAULT_AI_PROVIDER` env var.
+4. The compiled-in fallback (`openai`).
+
+Model selection per provider follows: explicit `--model` → provider-specific
+env var (e.g. `OPENAI_MODEL`, `OPENAI_MODEL_CHAT`) → generic `AI_MODEL` →
+provider's hard-coded default model.
 
 ## Request Lifecycle
 
@@ -28,10 +51,37 @@ UI and CLI only call `llm_examples.services`.
 2. Text files are normalized into prompt context text.
 3. Images are normalized into `ImageAttachment` objects.
 4. Provider adapters map those attachments to provider-native multimodal payloads:
-   - OpenAI-compatible (OpenAI, DeepSeek, Qwen, Z.ai)
+   - OpenAI-compatible (OpenAI, Gemini, DeepSeek, Qwen, Z.ai, OCA)
    - Anthropic blocks (Claude)
-   - Gemini `inline_data` parts
 5. If a selected model does not support vision, provider adapters return normalized errors.
+
+## Model List Filtering and Ranking
+
+`ProviderClientBase.list_models` runs every provider's listed models through
+`is_chat_model(provider, model_id)` and `rank_chat_models`. The filter:
+
+- Drops markers that never make sense for a chat-completion call (embedding,
+  TTS, transcribe, image, audio, vision-preview, customtools, thinking,
+  thought, reasoner, computer-use, computer_use).
+- Allowlists known stable Gemini families (`gemini-{1.5,2.0,2.5}-{flash,pro,
+  flash-lite,flash-8b}`, optionally with `-NNN`, `-exp`, `-latest`, or
+  `-MM-YYYY` suffixes) so OpenAI-compatible incompatibilities (`thought_signature`,
+  computer-use, customtools) cannot reach the dropdown.
+- Ranks remaining models by version score → `latest` tag → date in name → id,
+  so the newest stable chat model appears first.
+- Appends a single env-override row (`OPENAI_MODEL`, `CLAUDE_MODEL`, etc.) at
+  the end of the list when set, ensuring power users can always pick it.
+
+## Friendly Error Mapping
+
+`format_provider_error` translates well-known upstream errors into actionable
+hints before they reach the CLI/UI surfaces:
+
+- `thought_signature`, `computer-use` / `computer_use` → "pick a stable Gemini
+  chat model".
+- `reasoning_content` → "pick a non-reasoning chat model".
+- Cloudflare HTML challenges → "blocked by CF on this host".
+- `invalid x-api-key` / `authentication_error` → clean labelled rejection.
 
 ## Web Research Flow (UI Chat)
 
@@ -67,6 +117,46 @@ UI shows concise `st.error(...)` messages.
 - Streamlit page/provider/output selections are persisted in session state across reruns.
 - API `run` and chat use aligned response UX conventions (markdown rendering, long-response scrolling, and copy-friendly raw text).
 - API `run` and chat both expose request progress states during provider execution.
+
+## UI State Persistence
+
+`llm_examples/ui/persistence.py` mirrors a small set of `st.session_state`
+keys to disk so the chat experience survives Streamlit restarts and browser
+reloads:
+
+- `selected_provider`, `selected_chat_model_by_provider` — last-used provider
+  and chat model per provider.
+- `selected_page` — last-active page (`Chat`, `API`, or `Logs`); the default for new users is `Chat`.
+- `output_mode` — last-selected `TXT`/`JSON` toggle.
+- `prompt_history` — recent prompts per scope; chat scopes are
+  `chat:{provider}` (per-provider, shared across all models for that
+  provider), the API `run` page uses `run:{provider}`.
+
+Storage details:
+
+- File: `.state/llm_ui_state.json` at the repo root (gitignored).
+- Format: `{"schema_version": 1, "state": {...}}`. A loader that sees a
+  different `schema_version` discards the file and starts fresh, so future
+  schema changes can't corrupt the UI.
+- Writes are atomic: write to `.tmp`, then rename.
+- Env knobs: `LLM_EXAMPLES_STATE_FILE` overrides the path;
+  `LLM_EXAMPLES_DISABLE_STATE=1` turns persistence into a no-op (used by the
+  test suite via `conftest.py`).
+
+The hook lives entirely inside `state.py`: `_ensure_loaded()` rehydrates the
+session once per browser session, every mutator (`set_selected_provider`,
+`set_selected_page`, `set_output_mode`, `set_selected_chat_model`,
+`add_prompt_history`, `clear_prompt_history`) calls `_persist()` after
+mutating session state.
+
+## UI Port Resilience
+
+`make run` / `make ui` invokes `scripts/find_free_port.py` before starting
+Streamlit. The helper opens a `SO_REUSEADDR` socket against `127.0.0.1:PORT`
+(span configurable via `PORT_SPAN`, default 50) and prints the first port that
+binds successfully. The Makefile then passes that port to `streamlit
+--server.port`, so a busy default no longer crashes the UI; the chosen port is
+logged when it differs from the requested one.
 
 ## Documentation Parity
 

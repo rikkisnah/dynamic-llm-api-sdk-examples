@@ -10,6 +10,7 @@ from llm_examples.domain_types import ChatRequest, ChatResponse, CheckResult, LL
 from llm_examples.providers.claude_provider import ClaudeProvider
 from llm_examples.providers.deepseek_provider import DeepSeekProvider
 from llm_examples.providers.gemini_provider import GeminiProvider
+from llm_examples.providers.oca_provider import OCAProvider
 from llm_examples.providers.openai_provider import OpenAIProvider
 from llm_examples.providers.qwen_provider import QwenProvider
 from llm_examples.providers.zai_provider import ZAIProvider
@@ -21,6 +22,17 @@ PROVIDER_ROWS = (
     ("deepseek", DeepSeekProvider),
     ("qwen", QwenProvider),
     ("zai", ZAIProvider),
+    ("oca", OCAProvider),
+)
+
+CHAT_MODEL_ROWS = (
+    ("openai", OpenAIProvider, "gpt-4o-mini"),
+    ("claude", ClaudeProvider, "claude-haiku-4-5"),
+    ("gemini", GeminiProvider, "gemini-2.5-flash"),
+    ("deepseek", DeepSeekProvider, "deepseek-chat"),
+    ("qwen", QwenProvider, "qwen-plus"),
+    ("zai", ZAIProvider, "glm-4.6"),
+    ("oca", OCAProvider, "gpt-5.5"),
 )
 
 
@@ -79,8 +91,27 @@ def test_chat_rate_limit_error(
     assert caught.value.kind == "rate_limit"
 
 
-@pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
+@pytest.mark.parametrize("provider_name,provider_cls,sample_model", CHAT_MODEL_ROWS)
 def test_list_models_success(
+    provider_name: str,
+    provider_cls: type,
+    sample_model: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_examples.domain_types import ModelInfo
+
+    client = provider_cls()
+
+    def fake_list(self) -> list[ModelInfo]:
+        return [ModelInfo(provider=provider_name, id=sample_model)]
+
+    monkeypatch.setattr(provider_cls, "_list_models_impl", fake_list)
+    models = client.list_models()
+    assert [item.id for item in models] == [sample_model]
+
+
+@pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)
+def test_list_models_filters_non_chat_ids(
     provider_name: str, provider_cls: type, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from llm_examples.domain_types import ModelInfo
@@ -88,11 +119,14 @@ def test_list_models_success(
     client = provider_cls()
 
     def fake_list(self) -> list[ModelInfo]:
-        return [ModelInfo(provider=provider_name, id="model-a")]
+        return [
+            ModelInfo(provider=provider_name, id="text-embedding-3-large"),
+            ModelInfo(provider=provider_name, id="whisper-1"),
+        ]
 
     monkeypatch.setattr(provider_cls, "_list_models_impl", fake_list)
     models = client.list_models()
-    assert [item.id for item in models] == ["model-a"]
+    assert all(item.description == "fallback allowlist" for item in models)
 
 
 @pytest.mark.parametrize("provider_name,provider_cls", PROVIDER_ROWS)

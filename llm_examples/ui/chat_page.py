@@ -77,8 +77,8 @@ def _load_provider_model_options(provider: ProviderName) -> list[str]:
     return model_options
 
 
-def _prompt_history_scope_for_chat(provider: ProviderName, model: str) -> str:
-    return f"chat:{provider}:{model}"
+def _prompt_history_scope_for_chat(provider: ProviderName) -> str:
+    return f"chat:{provider}"
 
 
 def _should_scroll_response(content: str) -> bool:
@@ -146,7 +146,6 @@ def _render_chat_thread_controls(provider: ProviderName, model_value: str) -> No
 def _render_chat_saved_prompt_controls(
     *,
     provider: ProviderName,
-    model_value: str,
     prompt_scope: str,
     prompt_history: list[str],
 ) -> tuple[str, bool]:
@@ -154,24 +153,27 @@ def _render_chat_saved_prompt_controls(
     selected = prompt_left.selectbox(
         "Saved prompts",
         options=["", *prompt_history],
-        key=f"chat-saved-prompts-{provider}-{model_value}",
+        key=f"chat-saved-prompts-{provider}",
         format_func=lambda value: (
             "Select a previous prompt"
             if value == ""
             else format_prompt_option_label(str(value))
         ),
-        help="Pick one of your recent prompts.",
+        help=(
+            "Pick one of your recent prompts for this provider. "
+            "Saved prompts persist across reloads via `.state/llm_ui_state.json`."
+        ),
     )
     send_saved_prompt = prompt_send_col.button(
         "Send",
         icon=":material/send:",
-        key=f"chat-send-saved-{provider}-{model_value}",
+        key=f"chat-send-saved-{provider}",
         width="content",
     )
     if prompt_clear_col.button(
         "Clear",
         icon=":material/delete_sweep:",
-        key=f"chat-clear-prompts-{provider}-{model_value}",
+        key=f"chat-clear-prompts-{provider}",
         width="content",
     ):
         clear_prompt_history(prompt_scope)
@@ -323,14 +325,16 @@ def _render_chat_controls(
     prompt_scope: str,
     prompt_history: list[str],
 ) -> ChatControls:
-    with st.expander("Chat settings", expanded=False):
-        _render_chat_thread_controls(provider, model_value)
+    selected_saved_prompt = ""
+    send_saved_prompt = False
+    if prompt_history:
         selected_saved_prompt, send_saved_prompt = _render_chat_saved_prompt_controls(
             provider=provider,
-            model_value=model_value,
             prompt_scope=prompt_scope,
             prompt_history=prompt_history,
         )
+    with st.expander("Chat settings", expanded=False):
+        _render_chat_thread_controls(provider, model_value)
         stream, max_tokens, web_research, system = _render_chat_generation_controls()
     return ChatControls(
         selected_saved_prompt=selected_saved_prompt,
@@ -444,7 +448,7 @@ def render_chat_page(provider: ProviderName, *, log_ui_call: Callable[..., None]
         st.warning("No models available for this provider.")
         return
     model_value = _render_chat_model_selector(provider, model_options)
-    prompt_scope = _prompt_history_scope_for_chat(provider, model_value)
+    prompt_scope = _prompt_history_scope_for_chat(provider)
     controls = _render_chat_controls(
         provider=provider,
         model_value=model_value,

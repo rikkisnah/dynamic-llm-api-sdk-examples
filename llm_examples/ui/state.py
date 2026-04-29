@@ -14,51 +14,95 @@ except Exception:  # pragma: no cover - optional dependency fallback for constra
 
     st = _StreamlitStub()  # type: ignore[assignment]
 
+from llm_examples.ui.persistence import load_state, persisted_keys, save_state
+
+_LOADED_SENTINEL = "_persisted_state_loaded"
+
+
+def _ensure_loaded() -> None:
+    """Rehydrate persisted UI state into st.session_state once per session."""
+    if st.session_state.get(_LOADED_SENTINEL):
+        return
+    st.session_state[_LOADED_SENTINEL] = True
+    persisted = load_state()
+    for key in persisted_keys():
+        if key not in st.session_state and key in persisted:
+            st.session_state[key] = persisted[key]
+
+
+def _persist() -> None:
+    """Write the subset of session_state that participates in persistence."""
+    payload = {key: st.session_state.get(key) for key in persisted_keys()}
+    save_state(payload)
+
+
+def persist_session_state() -> None:
+    """Public wrapper for `_persist` used by widgets that mutate session_state directly.
+
+    Streamlit widgets bound to a `key=` write into `st.session_state` themselves
+    (bypassing this module's setters). Use this as an `on_change=` callback to
+    push those changes to disk after the widget mutates state.
+    """
+    _ensure_loaded()
+    _persist()
+
 
 def get_selected_provider(default: str) -> str:
     """Read selected provider from session state."""
+    _ensure_loaded()
     value = st.session_state.get("selected_provider")
     if isinstance(value, str) and value:
         return value
     st.session_state["selected_provider"] = default
+    _persist()
     return default
 
 
 def set_selected_provider(value: str) -> None:
     """Persist selected provider in session state."""
+    _ensure_loaded()
     st.session_state["selected_provider"] = value
+    _persist()
 
 
-PageName = Literal["API", "Chat", "Logs"]
+PageName = Literal["Chat", "API", "Logs"]
 
 
-def get_selected_page(default: PageName = "API") -> PageName:
+def get_selected_page(default: PageName = "Chat") -> PageName:
     """Read selected UI page from session state."""
+    _ensure_loaded()
     value = st.session_state.get("selected_page")
     if isinstance(value, str) and value in {"API", "Chat", "Logs"}:
         return cast(PageName, value)
     st.session_state["selected_page"] = default
+    _persist()
     return default
 
 
 def set_selected_page(value: PageName) -> None:
     """Persist selected UI page in session state."""
+    _ensure_loaded()
     st.session_state["selected_page"] = value
+    _persist()
 
 
 def get_output_mode(default: str = "txt") -> str:
     """Read selected output mode from session state."""
+    _ensure_loaded()
     value = st.session_state.get("output_mode")
     if isinstance(value, str) and value in {"txt", "json"}:
         return value
     st.session_state["output_mode"] = default
+    _persist()
     return default
 
 
 def set_output_mode(value: str) -> None:
     """Persist output mode in session state."""
     if value in {"txt", "json"}:
+        _ensure_loaded()
         st.session_state["output_mode"] = value
+        _persist()
 
 
 def _get_models_by_provider() -> dict[str, list[str]]:
@@ -98,13 +142,16 @@ def _get_selected_chat_models() -> dict[str, str]:
 
 def set_selected_chat_model(provider: str, model: str) -> None:
     """Persist selected chat model per provider."""
+    _ensure_loaded()
     rows = _get_selected_chat_models()
     rows[provider] = model
     st.session_state["selected_chat_model_by_provider"] = rows
+    _persist()
 
 
 def get_selected_chat_model(provider: str, options: list[str]) -> str:
     """Read selected chat model for provider or initialize from model options."""
+    _ensure_loaded()
     rows = _get_selected_chat_models()
     selected = rows.get(provider)
     if isinstance(selected, str) and selected in options:
@@ -113,6 +160,7 @@ def get_selected_chat_model(provider: str, options: list[str]) -> str:
         fallback = options[0]
         rows[provider] = fallback
         st.session_state["selected_chat_model_by_provider"] = rows
+        _persist()
         return fallback
     return ""
 
@@ -208,6 +256,7 @@ def get_prompt_history(scope: str) -> list[str]:
     """Read recent prompt values for one UI scope."""
     if not scope:
         return []
+    _ensure_loaded()
     return _get_prompt_history_store().get(scope, [])
 
 
@@ -217,11 +266,13 @@ def add_prompt_history(scope: str, prompt: str) -> None:
     cleaned_prompt = prompt.strip()
     if not cleaned_scope or not cleaned_prompt:
         return
+    _ensure_loaded()
     rows = _get_prompt_history_store()
     history = [item for item in rows.get(cleaned_scope, []) if item != cleaned_prompt]
     history.insert(0, cleaned_prompt)
     rows[cleaned_scope] = history[:PROMPT_HISTORY_LIMIT]
     st.session_state["prompt_history"] = rows
+    _persist()
 
 
 def clear_prompt_history(scope: str) -> None:
@@ -229,6 +280,8 @@ def clear_prompt_history(scope: str) -> None:
     cleaned_scope = scope.strip()
     if not cleaned_scope:
         return
+    _ensure_loaded()
     rows = _get_prompt_history_store()
     rows[cleaned_scope] = []
     st.session_state["prompt_history"] = rows
+    _persist()

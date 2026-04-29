@@ -10,12 +10,21 @@ from llm_examples.providers import (
     ClaudeProvider,
     DeepSeekProvider,
     GeminiProvider,
+    OCAProvider,
     OpenAIProvider,
     QwenProvider,
     ZAIProvider,
 )
 
-PROVIDERS: tuple[ProviderName, ...] = ("openai", "claude", "gemini", "deepseek", "qwen", "zai")
+PROVIDERS: tuple[ProviderName, ...] = (
+    "openai",
+    "claude",
+    "gemini",
+    "deepseek",
+    "qwen",
+    "zai",
+    "oca",
+)
 
 _CLIENTS: Mapping[ProviderName, type[BaseClient]] = {
     "openai": OpenAIProvider,
@@ -24,6 +33,7 @@ _CLIENTS: Mapping[ProviderName, type[BaseClient]] = {
     "deepseek": DeepSeekProvider,
     "qwen": QwenProvider,
     "zai": ZAIProvider,
+    "oca": OCAProvider,
 }
 
 

@@ -43,8 +43,11 @@ CAPABILITIES: tuple[Capability, ...] = (
             Parameter(
                 name="provider",
                 type="enum:provider",
-                required=True,
-                help="Provider name to query for available models.",
+                required=False,
+                help=(
+                    "Provider name to query for available models. "
+                    "Defaults to AI_PROVIDER / DEFAULT_AI_PROVIDER from .env when omitted."
+                ),
             ),
         ),
     ),
@@ -55,8 +58,11 @@ CAPABILITIES: tuple[Capability, ...] = (
             Parameter(
                 name="provider",
                 type="enum:provider",
-                required=True,
-                help="Provider name to run the prompt with.",
+                required=False,
+                help=(
+                    "Provider name to run the prompt with. "
+                    "Defaults to AI_PROVIDER / DEFAULT_AI_PROVIDER from .env when omitted."
+                ),
             ),
             Parameter(
                 name="model",
@@ -106,8 +112,11 @@ CAPABILITIES: tuple[Capability, ...] = (
             Parameter(
                 name="provider",
                 type="enum:provider",
-                required=True,
-                help="Provider name whose credentials should be validated.",
+                required=False,
+                help=(
+                    "Provider name whose credentials should be validated. "
+                    "Defaults to AI_PROVIDER / DEFAULT_AI_PROVIDER from .env when omitted."
+                ),
             ),
         ),
     ),

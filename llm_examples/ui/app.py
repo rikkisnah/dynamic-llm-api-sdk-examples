@@ -26,7 +26,12 @@ except Exception:  # pragma: no cover - optional dependency fallback for constra
     st = _StreamlitStub()  # type: ignore[assignment]
 
 from llm_examples.capabilities import CAPABILITIES, Capability, capability_by_name
-from llm_examples.config import get_app_version, get_provider_config, provider_env_names
+from llm_examples.config import (
+    get_app_version,
+    get_provider_config,
+    provider_env_names,
+    resolve_default_provider,
+)
 from llm_examples.domain_types import LLMError, ProviderName
 from llm_examples.registry import PROVIDERS
 from llm_examples.services import check_connection, list_models, run_prompt, stream_prompt
@@ -34,6 +39,7 @@ from llm_examples.ui.chat_page import render_chat_page
 from llm_examples.ui.helpers import pretty_json, to_json_payload
 from llm_examples.ui.helpers import prompt_option_label as format_prompt_option_label
 from llm_examples.ui.state import (
+    PageName,
     add_prompt_history,
     append_ui_call_log,
     clear_prompt_history,
@@ -44,6 +50,7 @@ from llm_examples.ui.state import (
     get_selected_page,
     get_selected_provider,
     get_ui_call_log,
+    persist_session_state,
     set_latest_models,
     set_output_mode,
     set_selected_provider,
@@ -70,6 +77,8 @@ QUOTES: tuple[tuple[str, str, str], ...] = (
 )
 
 OutputMode = Literal["txt", "json"]
+PAGE_OPTIONS: tuple[PageName, PageName, PageName] = ("Chat", "API", "Logs")
+DEFAULT_PAGE: PageName = "Chat"
 API_REPLY_SCROLL_HEIGHT = 340
 API_REPLY_SCROLL_CHAR_THRESHOLD = 2_000
 API_REPLY_SCROLL_LINE_THRESHOLD = 24
@@ -675,15 +684,19 @@ def render() -> None:
     st.title("Dynamic LLM API SDK Examples")
     st.caption(f"Version {get_app_version()}")
     _render_quote()
-    page_options = ("API", "Chat", "Logs")
+    # Initialise session state for "selected_page" before the widget renders so
+    # the radio's `key=` finds a valid value and we don't trip Streamlit's
+    # "default value + session_state" warning.
+    get_selected_page(DEFAULT_PAGE)
     selected_page = st.sidebar.radio(
         "Page",
-        page_options,
-        index=page_options.index(get_selected_page("API")),
+        PAGE_OPTIONS,
         key="selected_page",
+        on_change=persist_session_state,
     )
     st.sidebar.caption(f"Version {get_app_version()}")
-    selected = get_selected_provider(PROVIDERS[0])
+    initial_provider = resolve_default_provider(options=PROVIDERS, fallback=PROVIDERS[0])
+    selected = get_selected_provider(initial_provider)
     selected_provider = st.sidebar.selectbox(
         "Provider",
         PROVIDERS,

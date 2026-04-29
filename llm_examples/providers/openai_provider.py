@@ -22,14 +22,13 @@ from llm_examples.providers._common import (
     model_info_list,
     normalize_usage,
     openai_compatible_messages,
+    retry_max_tokens,
     text_from_openai_response,
     text_from_openai_stream_event,
 )
 
 DEFAULT_MODEL = "gpt-4o-mini"
 FALLBACK_MODELS = ("gpt-4o-mini", "gpt-4.1-mini")
-RETRY_MIN_MAX_TOKENS = 2048
-RETRY_MAX_MAX_TOKENS = 4096
 
 
 def _uses_max_completion_tokens(exc: Exception) -> bool:
@@ -44,8 +43,7 @@ def _openai_is_token_limit_finish(finish_reason: object) -> bool:
 
 
 def _openai_retry_max_tokens(max_tokens: int) -> int:
-    doubled = max_tokens * 2
-    return min(RETRY_MAX_MAX_TOKENS, max(RETRY_MIN_MAX_TOKENS, doubled))
+    return retry_max_tokens(max_tokens)
 
 
 def _openai_extract_chat_fields(response: object) -> tuple[str, object, Usage | None, str | None]:

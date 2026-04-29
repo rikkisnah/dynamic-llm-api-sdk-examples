@@ -10,12 +10,12 @@ Set up this repository so it can run on this machine.
 Requirements:
 - Support Ubuntu and macOS setup flow.
 - Install missing prerequisites: git, make, curl, Python 3.11+ (or current Python 3), and uv.
-- Copy .env.example to .env if .env does not exist.
+- Copy .env.example to .env if .env does not exist (the app loads .env from the repo root and from llm_examples/.env, so either location works).
 - Run make setup.
 - Run make help.
 - Run make check.
 - Run make providers.
-- Run make run-cli P=openai PROMPT="hello" (or any configured provider).
+- Run make run-cli P=openai PROMPT="hello" (or any configured provider; valid `P=` values: openai, claude, gemini, deepseek, qwen, zai, oca).
 - Start UI once with make run.
 - Report what was installed and final status.
 

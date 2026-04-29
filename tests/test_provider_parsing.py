@@ -85,7 +85,7 @@ def test_openai_chat_retries_and_succeeds_on_empty_token_limit(
     )
     result = provider._chat_impl(request)
     assert result.text == "Hello after retry"
-    assert calls == [512, 2048]
+    assert calls == [512, 1024]
 
 
 def test_openai_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -304,11 +304,15 @@ def test_gemini_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) ->
     provider = GeminiProvider()
     captured: dict[str, object] = {}
 
-    def fake_generate_content(**kwargs: Any) -> object:
+    def fake_create(**kwargs: Any) -> object:
         captured.update(kwargs)
-        return _Obj(text="ok", usage_metadata=None)
+        return _Obj(
+            choices=[_Obj(message=_Obj(content="ok"), finish_reason="stop")],
+            usage=None,
+            id="id-1",
+        )
 
-    client = _Obj(models=_Obj(generate_content=fake_generate_content))
+    client = _Obj(chat=_Obj(completions=_Obj(create=fake_create)))
     monkeypatch.setattr(provider, "_sdk_client", lambda: client)
     request = ChatRequest(
         provider="gemini",
@@ -318,17 +322,17 @@ def test_gemini_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) ->
     )
     result = provider._chat_impl(request)
     assert result.text == "ok"
-    contents = captured.get("contents")
-    assert isinstance(contents, list)
-    first = contents[0]
-    assert isinstance(first, dict)
-    parts = first.get("parts")
-    assert isinstance(parts, list)
-    image_part = parts[1] if len(parts) > 1 else None
-    assert isinstance(image_part, dict)
-    inline = image_part.get("inline_data")
-    assert isinstance(inline, dict)
-    assert inline.get("mime_type") == "image/png"
+    messages = captured.get("messages")
+    assert isinstance(messages, list)
+    content = messages[-1].get("content") if isinstance(messages[-1], dict) else None
+    assert isinstance(content, list)
+    image_block = content[1] if len(content) > 1 else None
+    assert isinstance(image_block, dict)
+    image_url = image_block.get("image_url")
+    assert isinstance(image_url, dict)
+    url = image_url.get("url")
+    assert isinstance(url, str)
+    assert url.startswith("data:image/png;base64,")
 
 
 def test_deepseek_chat_sends_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:

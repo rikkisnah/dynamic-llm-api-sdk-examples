@@ -15,7 +15,8 @@ Available scripts:
 
 - `examples/openai_example.py`
 - `examples/claude_example.py`
-- `examples/gemini_example.py`
+- `examples/gemini_example.py` (OpenAI-compatible Gemini endpoint)
 - `examples/deepseek_example.py`
 - `examples/qwen_example.py`
 - `examples/zai_example.py`
+- `examples/oca_example.py` (Codex / OCA via LiteLLM proxy)

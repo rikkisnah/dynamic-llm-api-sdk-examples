@@ -23,6 +23,7 @@ from llm_examples.providers._common import (
     model_info_list,
     normalize_usage,
     openai_compatible_messages_for_prompt,
+    retry_max_tokens,
     text_from_content,
     text_from_openai_response,
     text_from_openai_stream_event,
@@ -30,8 +31,6 @@ from llm_examples.providers._common import (
 
 DEFAULT_MODEL = "glm-4.6"
 FALLBACK_MODELS = ("glm-4.6", "glm-4.5-air")
-RETRY_MIN_MAX_TOKENS = 512
-RETRY_MAX_MAX_TOKENS = 2048
 CONTINUATION_MAX_ROUNDS = 3
 CONTINUATION_CONTEXT_CHARS = 4_000
 
@@ -59,8 +58,7 @@ def _is_empty_due_token_limit(*, text: str, finish_reason: object) -> bool:
 
 
 def _retry_max_tokens(max_tokens: int) -> int:
-    doubled = max_tokens * 2
-    return min(RETRY_MAX_MAX_TOKENS, max(RETRY_MIN_MAX_TOKENS, doubled))
+    return retry_max_tokens(max_tokens)
 
 
 def _build_continuation_prompt(*, original_prompt: str, partial_answer: str) -> str:

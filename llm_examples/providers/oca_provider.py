@@ -1,4 +1,4 @@
-"""Tier 2: Google Gemini adapter using the OpenAI-compatible endpoint."""
+"""Tier 2: Codex / OCA adapter (OpenAI-SDK-compatible LiteLLM proxy)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,12 @@ import time
 from collections.abc import Iterable
 from typing import cast
 
-from llm_examples.config import get_provider_config
+from llm_examples.config import (
+    DEFAULT_OCA_BASE_URL,
+    codex_client_headers,
+    codex_reasoning_effort,
+    get_provider_config,
+)
 from llm_examples.domain_types import (
     ChatRequest,
     ChatResponse,
@@ -24,44 +29,14 @@ from llm_examples.providers._common import (
     text_from_openai_stream_event,
 )
 
-DEFAULT_MODEL = "gemini-2.5-flash"
-FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-2.5-pro")
-DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+DEFAULT_MODEL = "gpt-5.5"
+FALLBACK_MODELS = ("gpt-5.5", "gpt-5.4")
 
 
-def _extract_gemini_text(response: object) -> str:
-    """Compatibility shim retained for tests / advanced consumers.
+class OCAProvider(ProviderClientBase):
+    """Codex / OCA provider via the OpenAI-compatible LiteLLM proxy."""
 
-    Gemini now flows through the OpenAI-compatible endpoint so the standard
-    OpenAI extractor handles all real responses; this helper still tolerates
-    the legacy `text=...` / `candidates=[...]` shape for unit tests.
-    """
-    direct = text_from_openai_response(response)
-    if direct:
-        return direct
-    text = attr(response, "text")
-    if isinstance(text, str) and text:
-        return text
-    candidates = attr(response, "candidates")
-    if not isinstance(candidates, list):
-        return ""
-    chunks: list[str] = []
-    for candidate in candidates:
-        content = attr(candidate, "content")
-        parts = attr(content, "parts") if content is not None else None
-        if not isinstance(parts, list):
-            continue
-        for part in parts:
-            piece = attr(part, "text")
-            if isinstance(piece, str) and piece:
-                chunks.append(piece)
-    return "".join(chunks)
-
-
-class GeminiProvider(ProviderClientBase):
-    """Gemini provider routed through Google's OpenAI-compatible endpoint."""
-
-    provider: ProviderName = "gemini"
+    provider: ProviderName = "oca"
     default_model = DEFAULT_MODEL
     fallback_models = FALLBACK_MODELS
 
@@ -76,7 +51,8 @@ class GeminiProvider(ProviderClientBase):
 
             self._client = OpenAI(
                 api_key=self._config.api_key,
-                base_url=self._config.base_url or DEFAULT_BASE_URL,
+                base_url=self._config.base_url or DEFAULT_OCA_BASE_URL,
+                default_headers=codex_client_headers(),
             )
         return self._client
 
@@ -90,27 +66,33 @@ class GeminiProvider(ProviderClientBase):
         model_ids: list[str] = []
         if isinstance(data, list):
             for item in data:
-                model_id = attr(item, "id") or attr(item, "name")
+                model_id = attr(item, "id")
                 if isinstance(model_id, str):
-                    model_ids.append(model_id.removeprefix("models/"))
+                    model_ids.append(model_id)
         if not model_ids:
             return model_info_list(self.provider, self.fallback_models, fallback=True)
         return model_info_list(self.provider, model_ids)
+
+    def _request_kwargs(self, *, stream: bool, req: ChatRequest) -> dict[str, object]:
+        kwargs: dict[str, object] = {
+            "model": req.model,
+            "messages": openai_compatible_messages(req),
+            "max_tokens": req.max_tokens,
+            "stream": stream,
+        }
+        effort = codex_reasoning_effort()
+        if effort:
+            kwargs["reasoning_effort"] = effort
+        return kwargs
 
     def _chat_impl(self, req: ChatRequest) -> ChatResponse:
         chat_obj = attr(self._sdk_client(), "chat")
         completions_obj = attr(chat_obj, "completions") if chat_obj is not None else None
         create_fn = attr(completions_obj, "create")
         if not callable(create_fn):
-            raise RuntimeError("Gemini OpenAI-compatible chat API unavailable.")
+            raise RuntimeError("OCA OpenAI-compatible chat API unavailable.")
 
-        messages = openai_compatible_messages(req)
-        response = create_fn(
-            model=req.model,
-            messages=messages,
-            max_tokens=req.max_tokens,
-            stream=False,
-        )
+        response = create_fn(**self._request_kwargs(stream=False, req=req))
         return ChatResponse(
             provider=req.provider,
             model=req.model,
@@ -128,14 +110,8 @@ class GeminiProvider(ProviderClientBase):
         if not callable(create_fn):
             return self._simulate_stream(req)
 
-        messages = openai_compatible_messages(req)
         self.stream_is_simulated = False
-        stream = create_fn(
-            model=req.model,
-            messages=messages,
-            max_tokens=req.max_tokens,
-            stream=True,
-        )
+        stream = create_fn(**self._request_kwargs(stream=True, req=req))
         chunks: list[str] = []
         for event in stream:
             piece = text_from_openai_stream_event(event)

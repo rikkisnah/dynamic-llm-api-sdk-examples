@@ -6,6 +6,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from llm_examples.config import explicit_provider_model
 from llm_examples.domain_types import (
     ChatRequest,
     ChatResponse,
@@ -45,7 +46,7 @@ def run_prompt(
 ) -> ChatResponse:
     """Run one-shot prompt and normalize response metadata."""
     client = get_client(provider)
-    effective_model = model or client.default_model
+    effective_model = model or explicit_provider_model(provider) or client.default_model
     request = ChatRequest(
         provider=provider,
         model=effective_model,
@@ -91,7 +92,7 @@ def stream_prompt(
 ) -> StreamResult:
     """Run streaming prompt and expose whether stream is simulated."""
     client = get_client(provider)
-    effective_model = model or client.default_model
+    effective_model = model or explicit_provider_model(provider) or client.default_model
     request = ChatRequest(
         provider=provider,
         model=effective_model,

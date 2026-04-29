@@ -25,7 +25,12 @@ make list P=gemini
 make list P=deepseek
 make list P=qwen
 make list P=zai
+make list P=oca
 ```
+
+`list-models` filters non-chat models (embeddings, TTS, audio, vision-preview,
+computer-use, customtools, thinking, reasoners) and ranks chat models
+newest-first across all providers.
 
 ## Run Prompt
 
@@ -33,6 +38,15 @@ make list P=zai
 make run-cli P=openai PROMPT="hello"
 make run-cli P=claude M=claude-haiku-4-5 PROMPT="hello"
 make run-cli P=gemini PROMPT="hello" MAX_TOKENS=128
+make run-cli P=oca PROMPT="hello"
+```
+
+`--provider` is optional. When omitted the CLI reads `AI_PROVIDER` /
+`DEFAULT_AI_PROVIDER` from `.env` (alias-aware: e.g. `anthropic`/`claude`,
+`codex`/`oca`):
+
+```bash
+AI_PROVIDER=oca make cli ARGS='run --prompt hello'
 ```
 
 Read prompt from file or stdin:
@@ -69,12 +83,23 @@ make check-conn P=openai
 make run PORT=8501
 ```
 
+`make run` (and `make ui`) probes the requested port via
+`scripts/find_free_port.py`. If `PORT` is in use, the next free TCP port in
+`[PORT, PORT + PORT_SPAN)` (default span: 50) is used instead, and the chosen
+port is logged. Override with `PORT_SPAN=` to widen or narrow the search.
+
 Quote refresh behavior:
 
-1. Clicking the quote refresh icon keeps the current page (`API`, `Chat`, or `Logs`).
+1. Clicking the quote refresh icon keeps the current page (`Chat`, `API`, or `Logs`).
 2. API `TXT` output always includes a visible copy-ready code block.
 3. API `run` response rendering matches chat: markdown output and long-response scrolling.
 4. API `run` shows request progress states with elapsed time.
+
+Chat page persistence:
+
+1. Selected provider, selected chat model per provider, selected page, output mode, and prompt history are persisted to a gitignored `.state/llm_ui_state.json` so they survive Streamlit restarts and browser reloads.
+2. Saved prompts are scoped per provider (one shared list for all models of that provider). When there is at least one saved prompt the picker + Send/Clear buttons render above the composer; otherwise the chat keeps its conversation-first layout.
+3. `LLM_EXAMPLES_STATE_FILE=/path/to/state.json` overrides the location; `LLM_EXAMPLES_DISABLE_STATE=1` makes persistence a no-op (useful for ephemeral environments and unit tests).
 
 Chat page attachments:
 

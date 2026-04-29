@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-ProviderName = Literal["openai", "claude", "gemini", "deepseek", "qwen", "zai"]
+ProviderName = Literal["openai", "claude", "gemini", "deepseek", "qwen", "zai", "oca"]
 ErrorKind = Literal["auth", "rate_limit", "bad_request", "network", "server", "unsupported"]
 
 

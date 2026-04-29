@@ -37,9 +37,19 @@ def test_config_missing_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_config_provider_without_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    cfg = get_provider_config("openai")
+    assert cfg.base_url is None
+
+
+def test_config_gemini_uses_default_openai_compat_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_BASE_URL", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     cfg = get_provider_config("gemini")
-    assert cfg.base_url is None
+    assert cfg.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
 
 
 def test_domain_error_payloads() -> None:

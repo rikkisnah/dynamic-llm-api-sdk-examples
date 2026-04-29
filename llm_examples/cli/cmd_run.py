@@ -7,16 +7,18 @@ from argparse import Namespace
 from pathlib import Path
 
 from llm_examples.cli.output import print_json, print_lines
+from llm_examples.cli.providers import resolve_provider
 from llm_examples.domain_types import LLMError, ProviderName
 from llm_examples.services import run_prompt, stream_prompt
 
 
 def handle_run(args: Namespace) -> int:
     """Run prompt call, optionally in streaming mode."""
-    prompt = _resolve_prompt(args.provider, args.prompt, args.prompt_file)
+    provider = resolve_provider(args.provider)
+    prompt = _resolve_prompt(provider, args.prompt, args.prompt_file)
     if args.stream:
         stream_result = stream_prompt(
-            provider=args.provider,
+            provider=provider,
             model=args.model,
             prompt=prompt,
             system=args.system,
@@ -46,7 +48,7 @@ def handle_run(args: Namespace) -> int:
         return 0
 
     response = run_prompt(
-        provider=args.provider,
+        provider=provider,
         model=args.model,
         prompt=prompt,
         system=args.system,

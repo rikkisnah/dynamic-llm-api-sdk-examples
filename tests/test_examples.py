@@ -79,6 +79,15 @@ def _load_example_module(script_name: str) -> ModuleType:
                 monkeypatch.setattr(module, "run_prompt_http", lambda *_: "ok"),
             ),
         ),
+        (
+            "oca_example.py",
+            "OCA_API_KEY",
+            lambda module, monkeypatch: (
+                monkeypatch.setattr(module, "build_client", lambda *_: object()),
+                monkeypatch.setattr(module, "list_models", lambda *_: ["model-a"]),
+                monkeypatch.setattr(module, "run_prompt", lambda *_: "ok"),
+            ),
+        ),
     ],
 )
 def test_example_main(

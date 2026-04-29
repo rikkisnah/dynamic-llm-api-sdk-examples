@@ -141,7 +141,7 @@ def _score_scalability(root: Path) -> DimensionResult:
     cli_dispatch = (root / "llm_examples" / "cli" / "commands.py").exists()
     capabilities = (root / "llm_examples" / "capabilities.py").exists()
     score = 10
-    if len(provider_modules) < 6:
+    if len(provider_modules) < 7:
         score -= 4
     if not cli_dispatch:
         score -= 3
@@ -296,7 +296,7 @@ def _score_agent_discoverability(root: Path) -> DimensionResult:
 def _score_provider_symmetry(root: Path) -> DimensionResult:
     provider_files = sorted((root / "llm_examples" / "providers").glob("*_provider.py"))
     example_files = sorted((root / "examples").glob("*_example.py"))
-    symmetry_ok = len(provider_files) >= 6 and len(example_files) >= 6
+    symmetry_ok = len(provider_files) >= 7 and len(example_files) >= 7
     tests_path = root / "tests" / "test_providers.py"
     tests_text = _read(tests_path) if tests_path.exists() else ""
     has_param_rows = (
@@ -343,6 +343,7 @@ def _score_secret_hygiene(root: Path) -> DimensionResult:
             "DEEPSEEK_API_KEY",
             "DASHSCOPE_API_KEY",
             "ZAI_API_KEY",
+            "OCA_API_KEY",
         ]
     )
     lock_exists = (root / "uv.lock").exists()

@@ -17,6 +17,26 @@ def test_run_prompt_uses_client_default_model(monkeypatch: pytest.MonkeyPatch) -
     assert response.text == "echo:hello"
 
 
+def test_run_prompt_prefers_env_override_when_no_explicit_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeClient(provider="openai", model="hardcoded-default")
+    monkeypatch.setattr("llm_examples.services.get_client", lambda _provider: fake)
+    monkeypatch.setenv("OPENAI_MODEL", "env-model")
+    response = run_prompt(provider="openai", prompt="hello")
+    assert response.model == "env-model"
+
+
+def test_stream_prompt_prefers_env_override_when_no_explicit_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeClient(provider="openai", model="hardcoded-default")
+    monkeypatch.setattr("llm_examples.services.get_client", lambda _provider: fake)
+    monkeypatch.setenv("OPENAI_MODEL", "env-stream-model")
+    result = stream_prompt(provider="openai", prompt="hello")
+    assert result.model == "env-stream-model"
+
+
 def test_run_prompt_passes_image_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeClient(provider="openai", model="default-a")
     monkeypatch.setattr("llm_examples.services.get_client", lambda _provider: fake)
